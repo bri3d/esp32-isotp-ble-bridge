@@ -9,7 +9,7 @@
 #include "esp_timer.h"
 #include "driver/twai.h"
 #include "soc/dport_reg.h"
-#include "iso15765_2.h"
+#include "isotp.h"
 
 /* --------------------- Definitions and static variables ------------------ */
 //Example Configuration
@@ -20,15 +20,11 @@
 #define TX_GPIO_NUM 5
 #define RX_GPIO_NUM 4
 #define SILENT_GPIO_NUM 21
-#define GPIO_OUTPUT_PIN_SEL  ((1ULL<<SILENT_GPIO_NUM))
+#define GPIO_OUTPUT_PIN_SEL(X)  ((1ULL<<X))
+#define ISOTP_BUFSIZE 4096
 #define EXAMPLE_TAG "ISOTPtoBLE"
 
 // TX_GPIO_NUM and RX_GPIO_NUM are provided by the ESP KConfig system
-
-static uint8_t isotp_send_frame_callback(canbus_md mode, uint32_t id, uint8_t dlc, uint8_t *dt);
-static void on_error(n_rslt err_type);
-static uint32_t getms();
-static void isotp_data_received(n_indn_t *info);
 
 static const twai_general_config_t g_config = TWAI_GENERAL_CONFIG_DEFAULT(TX_GPIO_NUM, RX_GPIO_NUM, TWAI_MODE_NORMAL);
 static const twai_timing_config_t t_config = TWAI_TIMING_CONFIG_500KBITS();
@@ -39,53 +35,25 @@ static SemaphoreHandle_t ctrl_task_sem;
 static SemaphoreHandle_t periodic_task_sem;
 static SemaphoreHandle_t done_sem;
 
-static iso15765_t isotp_handler =
-    {
-        .addr_md = N_ADM_NORMAL,
-        .can_md = CANBUS_STANDARD,
-        .clbs.send_frame = isotp_send_frame_callback,
-        .clbs.on_error = on_error,
-        .clbs.get_ms = getms,
-        .clbs.indn = isotp_data_received,
-        .config.stmin = 0x3,
-        .config.bs = 0x0f,
-        .config.n_bs = 100,
-        .config.n_cr = 3};
+static IsoTpLink isotp_link;
 
-n_req_t frame_to_send =
-    {
-        .n_ai.n_pr = 0x07,
-        .n_ai.n_sa = 0x00,
-        .n_ai.n_ta = 0x04,
-        .n_ai.n_ae = 0x00,
-        .n_ai.n_tt = N_TA_T_PHY,
-        .msg = {0x22, 0xF1, 0x90},
-        .msg_sz = 3,
-};
+/* Alloc send and receive buffer statically in RAM */
+static uint8_t isotp_recv_buf[ISOTP_BUFSIZE];
+static uint8_t isotp_send_buf[ISOTP_BUFSIZE];
 
-static uint32_t getms()
-{
+int isotp_user_send_can(const uint32_t arbitration_id, const uint8_t* data, const uint8_t size) {
+    twai_message_t frame = {.identifier = arbitration_id, .data_length_code = size};
+    memcpy(frame.data, data, sizeof(frame.data));
+    xQueueSend(tx_task_queue, &frame, portMAX_DELAY);
+    return 0;                           
+}
+
+/* required, return system tick, unit is millisecond */
+uint32_t isotp_user_get_ms(void) {
     return (esp_timer_get_time() / 1000ULL) & 0xFFFFFFFF;
 }
 
-static uint8_t isotp_send_frame_callback(canbus_md mode, uint32_t id, uint8_t dlc, uint8_t *dt)
-{
-    twai_message_t frame = {.identifier = id, .data_length_code = dlc};
-    memcpy(frame.data, dt, sizeof(frame.data));
-    xQueueSend(tx_task_queue, &frame, portMAX_DELAY);
-    return 0;
-}
-
-static void on_error(n_rslt err_type)
-{
-    ESP_LOGE(EXAMPLE_TAG, "ERROR OCCURED!:%04x", err_type);
-}
-
-static void isotp_data_received(n_indn_t *info)
-{
-    ESP_LOGI(EXAMPLE_TAG, "\n-- Received ISO-TP data! ");
-    for (int i = 0; i < info->msg_sz; i++)
-        ESP_LOGI(EXAMPLE_TAG, "%02X", info->msg[i]);
+void isotp_user_debug(const char* message, ...) {
 }
 
 /* --------------------------- Tasks and Functions -------------------------- */
@@ -99,13 +67,8 @@ static void twai_receive_task(void *arg)
         ESP_LOGI(EXAMPLE_TAG, "Received Message with identifier %08X and length %08X", rx_msg.identifier, rx_msg.data_length_code);
         for (int i = 0; i < rx_msg.data_length_code; i++)
             ESP_LOGI(EXAMPLE_TAG, "RX Data: %02X", rx_msg.data[i]);
-        canbus_frame_t cb_frame = {
-            .id = rx_msg.identifier,
-            .dlc = rx_msg.data_length_code};
-        memcpy(cb_frame.dt, rx_msg.data, sizeof(cb_frame.dt));
         if(rx_msg.identifier == 0x7E8) {
-            // iso15765_enqueue copies the message data into queue (pass by copy) so this is OK
-            iso15765_enqueue(&isotp_handler, &cb_frame);
+             isotp_on_can_message(&isotp_link, rx_msg.data, rx_msg.data_length_code);
         }
     }
     vTaskDelete(NULL);
@@ -133,14 +96,16 @@ static void isotp_processing_task(void *arg)
     xSemaphoreTake(ctrl_task_sem, portMAX_DELAY);
     ESP_ERROR_CHECK(twai_start());
     ESP_LOGI(EXAMPLE_TAG, "CAN/TWAI Driver started");
-    iso15765_init(&isotp_handler);
+    isotp_init_link(&isotp_link, 0x7E0,
+						isotp_send_buf, sizeof(isotp_send_buf), 
+						isotp_recv_buf, sizeof(isotp_recv_buf));
     ESP_LOGI(EXAMPLE_TAG, "ISO-TP Handler started");
 
     xSemaphoreGive(periodic_task_sem);
 
     while (1)
     {
-        iso15765_process(&isotp_handler);
+        isotp_poll(&isotp_link);
         vTaskDelay(pdMS_TO_TICKS(10));
     }
 
@@ -159,7 +124,8 @@ static void send_periodic_task(void *arg)
         } else if (status_info.state == TWAI_STATE_STOPPED) {
             twai_start();
         } 
-        iso15765_send(&isotp_handler, &frame_to_send);
+        uint8_t data[8] = {0x22, 0xF1, 0x90};
+        isotp_send(&isotp_link, data, 3);
         vTaskDelay(pdMS_TO_TICKS(500));
     }
     vTaskDelete(NULL);
@@ -167,15 +133,17 @@ static void send_periodic_task(void *arg)
 
 void app_main(void)
 {
+    // Need to pull down GPIO 21 to unset the "S" (Silent Mode) pin on CAN Xceiver.
     gpio_config_t io_conf;
     io_conf.intr_type = GPIO_INTR_DISABLE;
     io_conf.mode = GPIO_MODE_OUTPUT;
-    io_conf.pin_bit_mask = GPIO_OUTPUT_PIN_SEL;
+    io_conf.pin_bit_mask = GPIO_OUTPUT_PIN_SEL(SILENT_GPIO_NUM);
     io_conf.pull_down_en = 1;
     io_conf.pull_up_en = 0;
     gpio_config(&io_conf);
     gpio_set_level(SILENT_GPIO_NUM, 0);
 
+    // "TWAI" is knockoff CAN. Install TWAI driver.
     ESP_ERROR_CHECK(twai_driver_install(&g_config, &t_config, &f_config));
     ESP_LOGI(EXAMPLE_TAG, "CAN/TWAI Driver installed");
 
