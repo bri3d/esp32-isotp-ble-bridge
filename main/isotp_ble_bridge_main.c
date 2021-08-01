@@ -75,14 +75,14 @@ static uint8_t isotp_send_frame_callback(canbus_md mode, uint32_t id, uint8_t dl
 
 static void on_error(n_rslt err_type)
 {
-    printf("ERROR OCCURED!:%04x", err_type);
+    ESP_LOGE(EXAMPLE_TAG, "ERROR OCCURED!:%04x", err_type);
 }
 
 static void isotp_data_received(n_indn_t *info)
 {
-    printf("\n-- Received ISO-TP data! ");
+    ESP_LOGI(EXAMPLE_TAG, "\n-- Received ISO-TP data! ");
     for (int i = 0; i < info->msg_sz; i++)
-        printf("%c", info->msg[i]);
+        ESP_LOGI(EXAMPLE_TAG, "%c", info->msg[i]);
 }
 
 /* --------------------------- Tasks and Functions -------------------------- */
@@ -149,12 +149,11 @@ void app_main(void)
     ESP_LOGI(EXAMPLE_TAG, "CAN/TWAI Driver installed");
 
     //Create semaphores and tasks
-    tx_task_queue = xQueueCreate(1, sizeof(twai_message_t));
+    tx_task_queue = xQueueCreate(10, sizeof(twai_message_t));
     ctrl_task_sem = xSemaphoreCreateBinary();
     done_sem = xSemaphoreCreateBinary();
-    ;
     periodic_task_sem = xSemaphoreCreateBinary();
-    ;
+
     xTaskCreatePinnedToCore(twai_receive_task, "TWAI_rx", 4096, NULL, RX_TASK_PRIO, NULL, tskNO_AFFINITY);
     xTaskCreatePinnedToCore(twai_transmit_task, "TWAI_tx", 4096, NULL, TX_TASK_PRIO, NULL, tskNO_AFFINITY);
     xTaskCreatePinnedToCore(isotp_processing_task, "ISOTP_process", 4096, NULL, CTRL_TSK_PRIO, NULL, tskNO_AFFINITY);
