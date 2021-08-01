@@ -8,16 +8,19 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "driver/twai.h"
+#include "soc/dport_reg.h"
 #include "iso15765_2.h"
 
 /* --------------------- Definitions and static variables ------------------ */
 //Example Configuration
 #define RX_TASK_PRIO 9   //Receiving task priority
 #define TX_TASK_PRIO 10  //Sending task priority
-#define CTRL_TSK_PRIO 11 //Control task priority
+#define CTRL_TSK_PRIO 7 //Control task priority
 #define MAIN_TSK_PRIO 8
-#define TX_GPIO_NUM CONFIG_EXAMPLE_TX_GPIO_NUM
-#define RX_GPIO_NUM CONFIG_EXAMPLE_RX_GPIO_NUM
+#define TX_GPIO_NUM 5
+#define RX_GPIO_NUM 4
+#define SILENT_GPIO_NUM 21
+#define GPIO_OUTPUT_PIN_SEL  ((1ULL<<SILENT_GPIO_NUM))
 #define EXAMPLE_TAG "ISOTPtoBLE"
 
 // TX_GPIO_NUM and RX_GPIO_NUM are provided by the ESP KConfig system
@@ -68,7 +71,7 @@ static uint32_t getms()
 static uint8_t isotp_send_frame_callback(canbus_md mode, uint32_t id, uint8_t dlc, uint8_t *dt)
 {
     twai_message_t frame = {.identifier = id, .data_length_code = dlc};
-    memcpy(dt, frame.data, sizeof(frame.data));
+    memcpy(frame.data, dt, sizeof(frame.data));
     xQueueSend(tx_task_queue, &frame, portMAX_DELAY);
     return 0;
 }
@@ -82,7 +85,7 @@ static void isotp_data_received(n_indn_t *info)
 {
     ESP_LOGI(EXAMPLE_TAG, "\n-- Received ISO-TP data! ");
     for (int i = 0; i < info->msg_sz; i++)
-        ESP_LOGI(EXAMPLE_TAG, "%c", info->msg[i]);
+        ESP_LOGI(EXAMPLE_TAG, "%02X", info->msg[i]);
 }
 
 /* --------------------------- Tasks and Functions -------------------------- */
@@ -93,11 +96,17 @@ static void twai_receive_task(void *arg)
     {
         twai_message_t rx_msg;
         twai_receive(&rx_msg, portMAX_DELAY); // If no message available, should block and yield.
+        ESP_LOGI(EXAMPLE_TAG, "Received Message with identifier %08X and length %08X", rx_msg.identifier, rx_msg.data_length_code);
+        for (int i = 0; i < rx_msg.data_length_code; i++)
+            ESP_LOGI(EXAMPLE_TAG, "RX Data: %02X", rx_msg.data[i]);
         canbus_frame_t cb_frame = {
             .id = rx_msg.identifier,
             .dlc = rx_msg.data_length_code};
-        memcpy(rx_msg.data, cb_frame.dt, sizeof(cb_frame.dt));
-        iso15765_enqueue(&isotp_handler, &cb_frame);
+        memcpy(cb_frame.dt, rx_msg.data, sizeof(cb_frame.dt));
+        if(rx_msg.identifier == 0x7E8) {
+            // iso15765_enqueue copies the message data into queue (pass by copy) so this is OK
+            iso15765_enqueue(&isotp_handler, &cb_frame);
+        }
     }
     vTaskDelete(NULL);
 }
@@ -108,6 +117,12 @@ static void twai_transmit_task(void *arg)
     {
         twai_message_t tx_msg;
         xQueueReceive(tx_task_queue, &tx_msg, portMAX_DELAY);
+        ESP_LOGI(EXAMPLE_TAG, "Sending Message with ID %08X", tx_msg.identifier);
+        for (int i = 0; i < tx_msg.data_length_code; i++)
+            ESP_LOGI(EXAMPLE_TAG, "TX Data: %02X", tx_msg.data[i]);
+        twai_status_info_t status_info;
+        twai_get_status_info(&status_info);
+        ESP_LOGI(EXAMPLE_TAG, "Current bus state : %08X", status_info.state);
         twai_transmit(&tx_msg, portMAX_DELAY);
     }
     vTaskDelete(NULL);
@@ -126,7 +141,7 @@ static void isotp_processing_task(void *arg)
     while (1)
     {
         iso15765_process(&isotp_handler);
-        vTaskDelay(pdMS_TO_TICKS(1));
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
 
     vTaskDelete(NULL);
@@ -137,6 +152,13 @@ static void send_periodic_task(void *arg)
     xSemaphoreTake(periodic_task_sem, portMAX_DELAY);
     while (1)
     {
+        twai_status_info_t status_info;
+        twai_get_status_info(&status_info);
+        if (status_info.state == TWAI_STATE_BUS_OFF) {
+            twai_initiate_recovery();
+        } else if (status_info.state == TWAI_STATE_STOPPED) {
+            twai_start();
+        } 
         iso15765_send(&isotp_handler, &frame_to_send);
         vTaskDelay(pdMS_TO_TICKS(500));
     }
@@ -145,6 +167,15 @@ static void send_periodic_task(void *arg)
 
 void app_main(void)
 {
+    gpio_config_t io_conf;
+    io_conf.intr_type = GPIO_INTR_DISABLE;
+    io_conf.mode = GPIO_MODE_OUTPUT;
+    io_conf.pin_bit_mask = GPIO_OUTPUT_PIN_SEL;
+    io_conf.pull_down_en = 1;
+    io_conf.pull_up_en = 0;
+    gpio_config(&io_conf);
+    gpio_set_level(SILENT_GPIO_NUM, 0);
+
     ESP_ERROR_CHECK(twai_driver_install(&g_config, &t_config, &f_config));
     ESP_LOGI(EXAMPLE_TAG, "CAN/TWAI Driver installed");
 
