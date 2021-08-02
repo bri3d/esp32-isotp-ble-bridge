@@ -33,6 +33,7 @@ static const twai_timing_config_t t_config = TWAI_TIMING_CONFIG_500KBITS();
 static const twai_filter_config_t f_config = TWAI_FILTER_CONFIG_ACCEPT_ALL();
 
 static QueueHandle_t tx_task_queue;
+static QueueHandle_t send_message_queue;
 static SemaphoreHandle_t isotp_task_sem;
 static SemaphoreHandle_t periodic_task_sem;
 static SemaphoreHandle_t done_sem;
@@ -43,6 +44,11 @@ static IsoTpLink isotp_link;
 /* Alloc send and receive buffer statically in RAM */
 static uint8_t isotp_recv_buf[ISOTP_BUFSIZE];
 static uint8_t isotp_send_buf[ISOTP_BUFSIZE];
+
+typedef struct send_message{
+    int32_t msg_length;
+    uint8_t * buffer;
+} send_message_t;
 
 /* ---------------------------- ISOTP Callbacks ---------------------------- */
 
@@ -112,7 +118,7 @@ static void isotp_processing_task(void *arg)
         isotp_poll(&isotp_link);
         xSemaphoreGive(isotp_mutex);
         uint16_t out_size;
-        uint8_t payload[32];
+        uint8_t payload[512];
         xSemaphoreTake(isotp_mutex, (TickType_t)100);
         int ret = isotp_receive(&isotp_link, payload, 32, &out_size);
         xSemaphoreGive(isotp_mutex);
@@ -120,6 +126,7 @@ static void isotp_processing_task(void *arg)
             ESP_LOGI(EXAMPLE_TAG, "Received ISO-TP message with length: %04X", out_size);
             for(int i = 0; i < out_size; i++) 
                 ESP_LOGI(EXAMPLE_TAG, "ISO-TP data %c", payload[i]);
+            ble_send(payload, out_size);
         }
         vTaskDelay(0);
     }
@@ -127,7 +134,7 @@ static void isotp_processing_task(void *arg)
     vTaskDelete(NULL);
 }
 
-static void send_periodic_task(void *arg)
+static void send_queue_task(void *arg)
 {
     xSemaphoreTake(periodic_task_sem, portMAX_DELAY);
     while (1)
@@ -138,18 +145,23 @@ static void send_periodic_task(void *arg)
             twai_initiate_recovery();
         } else if (status_info.state == TWAI_STATE_STOPPED) {
             twai_start();
-        } 
-        uint8_t data[8] = {0x22, 0xF1, 0x90};
+        }
+        send_message_t msg;
+        xQueueReceive(send_message_queue, &msg, portMAX_DELAY);
         xSemaphoreTake(isotp_mutex, (TickType_t)100);
-        isotp_send(&isotp_link, data, 3);
+        isotp_send(&isotp_link, msg.buffer, msg.msg_length);
         xSemaphoreGive(isotp_mutex);
+        free(msg.buffer);
         vTaskDelay(pdMS_TO_TICKS(500));
     }
     vTaskDelete(NULL);
 }
 
 void received_from_ble(const void* src, size_t size) {
-
+    send_message_t msg;
+    msg.buffer = malloc(size);
+    memcpy(msg.buffer, src, size);
+    xQueueSend(send_message_queue, &msg, pdMS_TO_TICKS(50));
 }
 
 void app_main(void)
@@ -175,6 +187,7 @@ void app_main(void)
 
     //Create semaphores and tasks
     tx_task_queue = xQueueCreate(10, sizeof(twai_message_t));
+    send_message_queue = xQueueCreate(10, sizeof(send_message_t));
     isotp_task_sem = xSemaphoreCreateBinary();
     done_sem = xSemaphoreCreateBinary();
     periodic_task_sem = xSemaphoreCreateBinary();
@@ -190,7 +203,7 @@ void app_main(void)
     xTaskCreatePinnedToCore(twai_receive_task, "TWAI_rx", 4096, NULL, RX_TASK_PRIO, NULL, tskNO_AFFINITY);
     xTaskCreatePinnedToCore(twai_transmit_task, "TWAI_tx", 4096, NULL, TX_TASK_PRIO, NULL, tskNO_AFFINITY);
     xTaskCreatePinnedToCore(isotp_processing_task, "ISOTP_process", 4096, NULL, ISOTP_TSK_PRIO, NULL, tskNO_AFFINITY);
-    xTaskCreatePinnedToCore(send_periodic_task, "MAIN_periodic_message", 4096, NULL, MAIN_TSK_PRIO, NULL, tskNO_AFFINITY);
+    xTaskCreatePinnedToCore(send_queue_task, "MAIN_process_send_queue", 4096, NULL, MAIN_TSK_PRIO, NULL, tskNO_AFFINITY);
 
     xSemaphoreGive(isotp_task_sem); //Start Control task
     xSemaphoreTake(done_sem, portMAX_DELAY);
@@ -203,4 +216,5 @@ void app_main(void)
     vSemaphoreDelete(done_sem);
     vSemaphoreDelete(isotp_mutex);
     vQueueDelete(tx_task_queue);
+    vQueueDelete(send_message_queue);
 }
