@@ -13,10 +13,10 @@
 
 /* --------------------- Definitions and static variables ------------------ */
 //Example Configuration
-#define RX_TASK_PRIO 9   //Receiving task priority
-#define TX_TASK_PRIO 10  //Sending task priority
-#define CTRL_TSK_PRIO tskIDLE_PRIORITY //Control task priority
-#define MAIN_TSK_PRIO 8
+#define RX_TASK_PRIO 3
+#define TX_TASK_PRIO 2
+#define CTRL_TSK_PRIO tskIDLE_PRIORITY // Pump messages at idle priority
+#define MAIN_TSK_PRIO 1
 #define TX_GPIO_NUM 5
 #define RX_GPIO_NUM 4
 #define SILENT_GPIO_NUM 21
@@ -157,6 +157,13 @@ void app_main(void)
     ctrl_task_sem = xSemaphoreCreateBinary();
     done_sem = xSemaphoreCreateBinary();
     periodic_task_sem = xSemaphoreCreateBinary();
+
+    // Tasks :
+    // "TWAI_rx" polls the receive queue (blocking) and once a message exists, forwards it into the ISO-TP library.
+    // "TWAI_tx" blocks on a send queue which is populated by the callback from the ISO-TP library
+    // "ISOTP_process" pumps the ISOTP library's "poll" method, which will call the send queue callback if a message needs to be sent.
+    // ISOTP_process also polls the ISOTP library's non-blocking receive method, which will produce a message if one is ready.
+    // "MAIN_periodic_message" currently just sends a UDS request every 500ms, and makes sure the bus is on. 
 
     xTaskCreatePinnedToCore(twai_receive_task, "TWAI_rx", 4096, NULL, RX_TASK_PRIO, NULL, tskNO_AFFINITY);
     xTaskCreatePinnedToCore(twai_transmit_task, "TWAI_tx", 4096, NULL, TX_TASK_PRIO, NULL, tskNO_AFFINITY);
