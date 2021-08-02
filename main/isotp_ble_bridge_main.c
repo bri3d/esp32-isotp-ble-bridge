@@ -34,6 +34,7 @@ static QueueHandle_t tx_task_queue;
 static SemaphoreHandle_t ctrl_task_sem;
 static SemaphoreHandle_t periodic_task_sem;
 static SemaphoreHandle_t done_sem;
+static SemaphoreHandle_t isotp_mutex;
 
 static IsoTpLink isotp_link;
 
@@ -65,10 +66,12 @@ static void twai_receive_task(void *arg)
         twai_message_t rx_msg;
         twai_receive(&rx_msg, portMAX_DELAY); // If no message available, should block and yield.
         if(rx_msg.identifier == 0x7E8) {
-            ESP_LOGI(EXAMPLE_TAG, "Received Message with identifier %08X and length %08X", rx_msg.identifier, rx_msg.data_length_code);
+            ESP_LOGD(EXAMPLE_TAG, "Received Message with identifier %08X and length %08X", rx_msg.identifier, rx_msg.data_length_code);
             for (int i = 0; i < rx_msg.data_length_code; i++)
-                ESP_LOGI(EXAMPLE_TAG, "RX Data: %02X", rx_msg.data[i]);
+                ESP_LOGD(EXAMPLE_TAG, "RX Data: %02X", rx_msg.data[i]);
+            xSemaphoreTake(isotp_mutex, (TickType_t)100);
             isotp_on_can_message(&isotp_link, rx_msg.data, rx_msg.data_length_code);
+            xSemaphoreGive(isotp_mutex);
         }
     }
     vTaskDelete(NULL);
@@ -80,9 +83,9 @@ static void twai_transmit_task(void *arg)
     {
         twai_message_t tx_msg;
         xQueueReceive(tx_task_queue, &tx_msg, portMAX_DELAY);
-        ESP_LOGI(EXAMPLE_TAG, "Sending Message with ID %08X", tx_msg.identifier);
+        ESP_LOGD(EXAMPLE_TAG, "Sending Message with ID %08X", tx_msg.identifier);
         for (int i = 0; i < tx_msg.data_length_code; i++)
-            ESP_LOGI(EXAMPLE_TAG, "TX Data: %02X", tx_msg.data[i]);
+            ESP_LOGD(EXAMPLE_TAG, "TX Data: %02X", tx_msg.data[i]);
         twai_transmit(&tx_msg, portMAX_DELAY);
     }
     vTaskDelete(NULL);
@@ -102,10 +105,14 @@ static void isotp_processing_task(void *arg)
 
     while (1)
     {
+        xSemaphoreTake(isotp_mutex, (TickType_t)100);
         isotp_poll(&isotp_link);
+        xSemaphoreGive(isotp_mutex);
         uint16_t out_size;
         uint8_t payload[32];
+        xSemaphoreTake(isotp_mutex, (TickType_t)100);
         int ret = isotp_receive(&isotp_link, payload, 32, &out_size);
+        xSemaphoreGive(isotp_mutex);
         if (ISOTP_RET_OK == ret) {
             ESP_LOGI(EXAMPLE_TAG, "Received ISO-TP message with length: %04X", out_size);
             for(int i = 0; i < out_size; i++) 
@@ -130,7 +137,9 @@ static void send_periodic_task(void *arg)
             twai_start();
         } 
         uint8_t data[8] = {0x22, 0xF1, 0x90};
+        xSemaphoreTake(isotp_mutex, (TickType_t)100);
         isotp_send(&isotp_link, data, 3);
+        xSemaphoreGive(isotp_mutex);
         vTaskDelay(pdMS_TO_TICKS(500));
     }
     vTaskDelete(NULL);
@@ -157,6 +166,7 @@ void app_main(void)
     ctrl_task_sem = xSemaphoreCreateBinary();
     done_sem = xSemaphoreCreateBinary();
     periodic_task_sem = xSemaphoreCreateBinary();
+    isotp_mutex = xSemaphoreCreateMutex();
 
     // Tasks :
     // "TWAI_rx" polls the receive queue (blocking) and once a message exists, forwards it into the ISO-TP library.
@@ -179,5 +189,6 @@ void app_main(void)
     vSemaphoreDelete(ctrl_task_sem);
     vSemaphoreDelete(periodic_task_sem);
     vSemaphoreDelete(done_sem);
+    vSemaphoreDelete(isotp_mutex);
     vQueueDelete(tx_task_queue);
 }
