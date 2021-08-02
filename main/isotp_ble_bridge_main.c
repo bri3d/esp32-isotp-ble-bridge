@@ -15,7 +15,7 @@
 //Example Configuration
 #define RX_TASK_PRIO 9   //Receiving task priority
 #define TX_TASK_PRIO 10  //Sending task priority
-#define CTRL_TSK_PRIO 7 //Control task priority
+#define CTRL_TSK_PRIO tskIDLE_PRIORITY //Control task priority
 #define MAIN_TSK_PRIO 8
 #define TX_GPIO_NUM 5
 #define RX_GPIO_NUM 4
@@ -45,7 +45,7 @@ int isotp_user_send_can(const uint32_t arbitration_id, const uint8_t* data, cons
     twai_message_t frame = {.identifier = arbitration_id, .data_length_code = size};
     memcpy(frame.data, data, sizeof(frame.data));
     xQueueSend(tx_task_queue, &frame, portMAX_DELAY);
-    return 0;                           
+    return ISOTP_RET_OK;                           
 }
 
 /* required, return system tick, unit is millisecond */
@@ -64,11 +64,11 @@ static void twai_receive_task(void *arg)
     {
         twai_message_t rx_msg;
         twai_receive(&rx_msg, portMAX_DELAY); // If no message available, should block and yield.
-        ESP_LOGI(EXAMPLE_TAG, "Received Message with identifier %08X and length %08X", rx_msg.identifier, rx_msg.data_length_code);
-        for (int i = 0; i < rx_msg.data_length_code; i++)
-            ESP_LOGI(EXAMPLE_TAG, "RX Data: %02X", rx_msg.data[i]);
         if(rx_msg.identifier == 0x7E8) {
-             isotp_on_can_message(&isotp_link, rx_msg.data, rx_msg.data_length_code);
+            ESP_LOGI(EXAMPLE_TAG, "Received Message with identifier %08X and length %08X", rx_msg.identifier, rx_msg.data_length_code);
+            for (int i = 0; i < rx_msg.data_length_code; i++)
+                ESP_LOGI(EXAMPLE_TAG, "RX Data: %02X", rx_msg.data[i]);
+            isotp_on_can_message(&isotp_link, rx_msg.data, rx_msg.data_length_code);
         }
     }
     vTaskDelete(NULL);
@@ -83,9 +83,6 @@ static void twai_transmit_task(void *arg)
         ESP_LOGI(EXAMPLE_TAG, "Sending Message with ID %08X", tx_msg.identifier);
         for (int i = 0; i < tx_msg.data_length_code; i++)
             ESP_LOGI(EXAMPLE_TAG, "TX Data: %02X", tx_msg.data[i]);
-        twai_status_info_t status_info;
-        twai_get_status_info(&status_info);
-        ESP_LOGI(EXAMPLE_TAG, "Current bus state : %08X", status_info.state);
         twai_transmit(&tx_msg, portMAX_DELAY);
     }
     vTaskDelete(NULL);
@@ -106,7 +103,15 @@ static void isotp_processing_task(void *arg)
     while (1)
     {
         isotp_poll(&isotp_link);
-        vTaskDelay(pdMS_TO_TICKS(10));
+        uint16_t out_size;
+        uint8_t payload[32];
+        int ret = isotp_receive(&isotp_link, payload, 32, &out_size);
+        if (ISOTP_RET_OK == ret) {
+            ESP_LOGI(EXAMPLE_TAG, "Received ISO-TP message with length: %04X", out_size);
+            for(int i = 0; i < out_size; i++) 
+                ESP_LOGI(EXAMPLE_TAG, "ISO-TP data %c", payload[i]);
+        }
+        vTaskDelay(0);
     }
 
     vTaskDelete(NULL);
