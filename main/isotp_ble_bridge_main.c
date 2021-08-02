@@ -10,6 +10,7 @@
 #include "driver/twai.h"
 #include "soc/dport_reg.h"
 #include "isotp.h"
+#include "ble_server.h"
 
 /* --------------------- Definitions and static variables ------------------ */
 #define RX_TASK_PRIO 3
@@ -147,8 +148,17 @@ static void send_periodic_task(void *arg)
     vTaskDelete(NULL);
 }
 
+void received_from_ble(const void* src, size_t size) {
+
+}
+
 void app_main(void)
 {
+    ble_server_callbacks callbacks = {
+        .data_received = received_from_ble
+    };
+    ble_server_setup(callbacks);
+
     // Need to pull down GPIO 21 to unset the "S" (Silent Mode) pin on CAN Xceiver.
     gpio_config_t io_conf;
     io_conf.intr_type = GPIO_INTR_DISABLE;
