@@ -12,26 +12,27 @@
 #include "isotp.h"
 
 /* --------------------- Definitions and static variables ------------------ */
-//Example Configuration
 #define RX_TASK_PRIO 3
 #define TX_TASK_PRIO 2
-#define CTRL_TSK_PRIO tskIDLE_PRIORITY // Pump messages at idle priority
+#define ISOTP_TSK_PRIO tskIDLE_PRIORITY // Pump messages at idle priority
 #define MAIN_TSK_PRIO 1
-#define TX_GPIO_NUM 5
-#define RX_GPIO_NUM 4
-#define SILENT_GPIO_NUM 21
+#define TX_GPIO_NUM 5 // For A0
+#define RX_GPIO_NUM 4 // For A0
+#define SILENT_GPIO_NUM 21 // For A0
 #define GPIO_OUTPUT_PIN_SEL(X)  ((1ULL<<X))
 #define ISOTP_BUFSIZE 4096
 #define EXAMPLE_TAG "ISOTPtoBLE"
 
-// TX_GPIO_NUM and RX_GPIO_NUM are provided by the ESP KConfig system
+#define SEND_IDENTIFIER 0x7E0
+#define RECEIVE_IDENTIFIER 0x7E8
+
 
 static const twai_general_config_t g_config = TWAI_GENERAL_CONFIG_DEFAULT(TX_GPIO_NUM, RX_GPIO_NUM, TWAI_MODE_NORMAL);
 static const twai_timing_config_t t_config = TWAI_TIMING_CONFIG_500KBITS();
 static const twai_filter_config_t f_config = TWAI_FILTER_CONFIG_ACCEPT_ALL();
 
 static QueueHandle_t tx_task_queue;
-static SemaphoreHandle_t ctrl_task_sem;
+static SemaphoreHandle_t isotp_task_sem;
 static SemaphoreHandle_t periodic_task_sem;
 static SemaphoreHandle_t done_sem;
 static SemaphoreHandle_t isotp_mutex;
@@ -42,6 +43,8 @@ static IsoTpLink isotp_link;
 static uint8_t isotp_recv_buf[ISOTP_BUFSIZE];
 static uint8_t isotp_send_buf[ISOTP_BUFSIZE];
 
+/* ---------------------------- ISOTP Callbacks ---------------------------- */
+
 int isotp_user_send_can(const uint32_t arbitration_id, const uint8_t* data, const uint8_t size) {
     twai_message_t frame = {.identifier = arbitration_id, .data_length_code = size};
     memcpy(frame.data, data, sizeof(frame.data));
@@ -49,7 +52,6 @@ int isotp_user_send_can(const uint32_t arbitration_id, const uint8_t* data, cons
     return ISOTP_RET_OK;                           
 }
 
-/* required, return system tick, unit is millisecond */
 uint32_t isotp_user_get_ms(void) {
     return (esp_timer_get_time() / 1000ULL) & 0xFFFFFFFF;
 }
@@ -65,7 +67,7 @@ static void twai_receive_task(void *arg)
     {
         twai_message_t rx_msg;
         twai_receive(&rx_msg, portMAX_DELAY); // If no message available, should block and yield.
-        if(rx_msg.identifier == 0x7E8) {
+        if(rx_msg.identifier == RECEIVE_IDENTIFIER) {
             ESP_LOGD(EXAMPLE_TAG, "Received Message with identifier %08X and length %08X", rx_msg.identifier, rx_msg.data_length_code);
             for (int i = 0; i < rx_msg.data_length_code; i++)
                 ESP_LOGD(EXAMPLE_TAG, "RX Data: %02X", rx_msg.data[i]);
@@ -93,10 +95,10 @@ static void twai_transmit_task(void *arg)
 
 static void isotp_processing_task(void *arg)
 {
-    xSemaphoreTake(ctrl_task_sem, portMAX_DELAY);
+    xSemaphoreTake(isotp_task_sem, portMAX_DELAY);
     ESP_ERROR_CHECK(twai_start());
     ESP_LOGI(EXAMPLE_TAG, "CAN/TWAI Driver started");
-    isotp_init_link(&isotp_link, 0x7E0,
+    isotp_init_link(&isotp_link, SEND_IDENTIFIER,
 						isotp_send_buf, sizeof(isotp_send_buf), 
 						isotp_recv_buf, sizeof(isotp_recv_buf));
     ESP_LOGI(EXAMPLE_TAG, "ISO-TP Handler started");
@@ -163,7 +165,7 @@ void app_main(void)
 
     //Create semaphores and tasks
     tx_task_queue = xQueueCreate(10, sizeof(twai_message_t));
-    ctrl_task_sem = xSemaphoreCreateBinary();
+    isotp_task_sem = xSemaphoreCreateBinary();
     done_sem = xSemaphoreCreateBinary();
     periodic_task_sem = xSemaphoreCreateBinary();
     isotp_mutex = xSemaphoreCreateMutex();
@@ -177,16 +179,16 @@ void app_main(void)
 
     xTaskCreatePinnedToCore(twai_receive_task, "TWAI_rx", 4096, NULL, RX_TASK_PRIO, NULL, tskNO_AFFINITY);
     xTaskCreatePinnedToCore(twai_transmit_task, "TWAI_tx", 4096, NULL, TX_TASK_PRIO, NULL, tskNO_AFFINITY);
-    xTaskCreatePinnedToCore(isotp_processing_task, "ISOTP_process", 4096, NULL, CTRL_TSK_PRIO, NULL, tskNO_AFFINITY);
+    xTaskCreatePinnedToCore(isotp_processing_task, "ISOTP_process", 4096, NULL, ISOTP_TSK_PRIO, NULL, tskNO_AFFINITY);
     xTaskCreatePinnedToCore(send_periodic_task, "MAIN_periodic_message", 4096, NULL, MAIN_TSK_PRIO, NULL, tskNO_AFFINITY);
 
-    xSemaphoreGive(ctrl_task_sem); //Start Control task
+    xSemaphoreGive(isotp_task_sem); //Start Control task
     xSemaphoreTake(done_sem, portMAX_DELAY);
 
     ESP_ERROR_CHECK(twai_driver_uninstall());
     ESP_LOGI(EXAMPLE_TAG, "Driver uninstalled");
 
-    vSemaphoreDelete(ctrl_task_sem);
+    vSemaphoreDelete(isotp_task_sem);
     vSemaphoreDelete(periodic_task_sem);
     vSemaphoreDelete(done_sem);
     vSemaphoreDelete(isotp_mutex);
