@@ -258,6 +258,16 @@ static bool store_wr_buffer(esp_ble_gatts_cb_param_t *p_data)
     return true;
 }
 
+static void disable_notification() {
+    enable_data_ntf = false;
+    server_callbacks.notifications_unsubscribed();
+}
+
+static void enable_notification() {
+    enable_data_ntf = true;
+    server_callbacks.notifications_subscribed();
+}
+
 static void free_write_buffer(void)
 {
     temp_spp_recv_data_node_p1 = SppRecvDataBuff.first_node;
@@ -443,9 +453,9 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
                     xQueueSend(cmd_cmd_queue,&spp_cmd_buff,10/portTICK_PERIOD_MS);
                 }else if(res == SPP_IDX_SPP_DATA_NTF_CFG){
                     if((p_data->write.len == 2)&&(p_data->write.value[0] == 0x01)&&(p_data->write.value[1] == 0x00)){
-                        enable_data_ntf = true;
+                        enable_notification();
                     }else if((p_data->write.len == 2)&&(p_data->write.value[0] == 0x00)&&(p_data->write.value[1] == 0x00)){
-                        enable_data_ntf = false;
+                        disable_notification();
                     }
                 }
                 else if(res == SPP_IDX_SPP_DATA_RECV_VAL){
@@ -488,7 +498,7 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
         	break;
     	case ESP_GATTS_DISCONNECT_EVT:
     	    is_connected = false;
-    	    enable_data_ntf = false;
+    	    disable_notification();
     	    esp_ble_gap_start_advertising(&spp_adv_params);
     	    break;
     	case ESP_GATTS_OPEN_EVT:
