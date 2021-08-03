@@ -13,10 +13,10 @@
 #include "ble_server.h"
 
 /* --------------------- Definitions and static variables ------------------ */
-#define RX_TASK_PRIO 3
-#define TX_TASK_PRIO 2
-#define ISOTP_TSK_PRIO tskIDLE_PRIORITY // Pump messages at idle priority
-#define MAIN_TSK_PRIO 1
+#define RX_TASK_PRIO 3 // Ensure we drain the RX queue as quickly as we reasonably can to prevent overflow and ensure the message pump has fresh data.
+#define TX_TASK_PRIO 3 // Ensure we TX messages as quickly as we reasonably can to meet ISO15765-2 timing constraints
+#define ISOTP_TSK_PRIO 2 // Run the message pump at a higher priority than the main queue/dequeue task when messages are available
+#define MAIN_TSK_PRIO 1 // Run the main task at the same priority as the BLE queue/dequeue tasks to help in delivery ordering.
 #define TX_GPIO_NUM 5 // For A0
 #define RX_GPIO_NUM 4 // For A0
 #define SILENT_GPIO_NUM 21 // For A0
@@ -35,9 +35,10 @@ static const twai_filter_config_t f_config = TWAI_FILTER_CONFIG_ACCEPT_ALL();
 static QueueHandle_t tx_task_queue;
 static QueueHandle_t send_message_queue;
 static SemaphoreHandle_t isotp_task_sem;
-static SemaphoreHandle_t periodic_task_sem;
+static SemaphoreHandle_t send_queue_start;
 static SemaphoreHandle_t done_sem;
 static SemaphoreHandle_t isotp_mutex;
+static SemaphoreHandle_t isotp_wait_for_data;
 
 static IsoTpLink isotp_link;
 
@@ -81,6 +82,7 @@ static void twai_receive_task(void *arg)
             xSemaphoreTake(isotp_mutex, (TickType_t)100);
             isotp_on_can_message(&isotp_link, rx_msg.data, rx_msg.data_length_code);
             xSemaphoreGive(isotp_mutex);
+            xSemaphoreGive(isotp_wait_for_data);
         }
     }
     vTaskDelete(NULL);
@@ -110,10 +112,14 @@ static void isotp_processing_task(void *arg)
 						isotp_recv_buf, sizeof(isotp_recv_buf));
     ESP_LOGI(EXAMPLE_TAG, "ISO-TP Handler started");
 
-    xSemaphoreGive(periodic_task_sem);
+    xSemaphoreGive(send_queue_start);
 
     while (1)
     {
+        if(isotp_link.send_status != ISOTP_SEND_STATUS_INPROGRESS && isotp_link.receive_status != ISOTP_RECEIVE_STATUS_INPROGRESS) {
+            // Link is idle, wait for new data before pumping loop. 
+            xSemaphoreTake(isotp_wait_for_data, portMAX_DELAY);
+        }
         xSemaphoreTake(isotp_mutex, (TickType_t)100);
         isotp_poll(&isotp_link);
         xSemaphoreGive(isotp_mutex);
@@ -128,7 +134,7 @@ static void isotp_processing_task(void *arg)
                 ESP_LOGD(EXAMPLE_TAG, "ISO-TP data %c", payload[i]);
             ble_send(payload, out_size);
         }
-        vTaskDelay(0);
+        vTaskDelay(0); // Allow higher priority tasks to run, for example Rx/Tx
     }
 
     vTaskDelete(NULL);
@@ -136,7 +142,7 @@ static void isotp_processing_task(void *arg)
 
 static void send_queue_task(void *arg)
 {
-    xSemaphoreTake(periodic_task_sem, portMAX_DELAY);
+    xSemaphoreTake(send_queue_start, portMAX_DELAY);
     while (1)
     {
         twai_status_info_t status_info;
@@ -151,6 +157,7 @@ static void send_queue_task(void *arg)
         xSemaphoreTake(isotp_mutex, (TickType_t)100);
         isotp_send(&isotp_link, msg.buffer, msg.msg_length);
         xSemaphoreGive(isotp_mutex);
+        xSemaphoreGive(isotp_wait_for_data);
         free(msg.buffer);
     }
     vTaskDelete(NULL);
@@ -195,7 +202,8 @@ void app_main(void)
     send_message_queue = xQueueCreate(10, sizeof(send_message_t));
     isotp_task_sem = xSemaphoreCreateBinary();
     done_sem = xSemaphoreCreateBinary();
-    periodic_task_sem = xSemaphoreCreateBinary();
+    send_queue_start = xSemaphoreCreateBinary();
+    isotp_wait_for_data = xSemaphoreCreateBinary();
     isotp_mutex = xSemaphoreCreateMutex();
 
     // Tasks :
@@ -217,7 +225,7 @@ void app_main(void)
     ESP_LOGI(EXAMPLE_TAG, "Driver uninstalled");
 
     vSemaphoreDelete(isotp_task_sem);
-    vSemaphoreDelete(periodic_task_sem);
+    vSemaphoreDelete(send_queue_start);
     vSemaphoreDelete(done_sem);
     vSemaphoreDelete(isotp_mutex);
     vQueueDelete(tx_task_queue);
