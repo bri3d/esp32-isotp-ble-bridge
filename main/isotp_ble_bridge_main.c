@@ -148,21 +148,27 @@ static void send_queue_task(void *arg)
         }
         send_message_t msg;
         xQueueReceive(send_message_queue, &msg, portMAX_DELAY);
+        ESP_LOGI(EXAMPLE_TAG, "Received a message from SendQ with length %08X", msg.msg_length);
         xSemaphoreTake(isotp_mutex, (TickType_t)100);
         isotp_send(&isotp_link, msg.buffer, msg.msg_length);
         xSemaphoreGive(isotp_mutex);
         free(msg.buffer);
-        vTaskDelay(pdMS_TO_TICKS(500));
     }
     vTaskDelete(NULL);
 }
 
+/* ----------- BLE callback ---------------- */
+
 void received_from_ble(const void* src, size_t size) {
+    ESP_LOGI(EXAMPLE_TAG, "Received a message from BLE stack with length %08X", size);
     send_message_t msg;
     msg.buffer = malloc(size);
     memcpy(msg.buffer, src, size);
+    msg.msg_length = size;
     xQueueSend(send_message_queue, &msg, pdMS_TO_TICKS(50));
 }
+
+/* ------------ Primary startup ---------------- */
 
 void app_main(void)
 {
@@ -198,7 +204,7 @@ void app_main(void)
     // "TWAI_tx" blocks on a send queue which is populated by the callback from the ISO-TP library
     // "ISOTP_process" pumps the ISOTP library's "poll" method, which will call the send queue callback if a message needs to be sent.
     // ISOTP_process also polls the ISOTP library's non-blocking receive method, which will produce a message if one is ready.
-    // "MAIN_periodic_message" currently just sends a UDS request every 500ms, and makes sure the bus is on. 
+    // "MAIN_process_send_queue" processes queued messages from the BLE stack. These messages are dynamically allocated when they are queued and freed in this task. 
 
     xTaskCreatePinnedToCore(twai_receive_task, "TWAI_rx", 4096, NULL, RX_TASK_PRIO, NULL, tskNO_AFFINITY);
     xTaskCreatePinnedToCore(twai_transmit_task, "TWAI_tx", 4096, NULL, TX_TASK_PRIO, NULL, tskNO_AFFINITY);

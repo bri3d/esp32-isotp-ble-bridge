@@ -298,19 +298,21 @@ void send_task(void *pvParameters)
     uint8_t current_num = 0;
     send_message_t event;
 
-    for (;;) {
-        //Waiting for UART event.
+    while(1) {
         if (xQueueReceive(spp_send_queue, (void * )&event, (TickType_t)portMAX_DELAY)) {
+            ESP_LOGI(GATTS_TABLE_TAG, "Got BT message to send with length %08X", event.msg_length);
             if (event.msg_length) {
                 uint8_t * temp = NULL;
                 uint8_t * ntf_value_p = NULL;
                 if(!enable_data_ntf){
                     ESP_LOGE(GATTS_TABLE_TAG, "%s do not enable data Notify\n", __func__);
+                    free(event.buffer);
                     break;
                 }
                 temp = (uint8_t *)malloc(sizeof(uint8_t)*event.msg_length);
                 if(temp == NULL){
                     ESP_LOGE(GATTS_TABLE_TAG, "%s malloc.1 failed\n", __func__);
+                    free(event.buffer);
                     break;
                 }
                 memset(temp,0x0,event.msg_length);
@@ -328,6 +330,7 @@ void send_task(void *pvParameters)
                     if(ntf_value_p == NULL){
                         ESP_LOGE(GATTS_TABLE_TAG, "%s malloc.2 failed\n", __func__);
                         free(temp);
+                        free(event.buffer);
                         break;
                     }
                     while(current_num <= total_num){
@@ -354,7 +357,6 @@ void send_task(void *pvParameters)
                 free(temp);
                 free(event.buffer);
             }
-            break;
         }
     }
     vTaskDelete(NULL);
@@ -377,9 +379,9 @@ void spp_cmd_task(void * arg)
 static void spp_task_init(void)
 {
     spp_send_queue = xQueueCreate(10, sizeof(send_message_t));
-    xTaskCreate(send_task, "BLE_sendTask", 2048, NULL, 8, NULL);
+    xTaskCreate(send_task, "BLE_sendTask", 2048, NULL, 1, NULL);
     cmd_cmd_queue = xQueueCreate(10, sizeof(uint32_t));
-    xTaskCreate(spp_cmd_task, "spp_cmd_task", 2048, NULL, 10, NULL);
+    xTaskCreate(spp_cmd_task, "spp_cmd_task", 2048, NULL, 1, NULL);
 }
 
 static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param)
