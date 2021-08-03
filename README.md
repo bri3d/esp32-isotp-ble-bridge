@@ -4,7 +4,7 @@ The goal of this project is to build a native Macchina A0 firmware which can bri
 
 This project is built using the ESP32 native toolchain ESP-IDF (based on FreeRTOS) and can be compiled using `idf.py build` .
 
-Currently, only the ISOTP side is implemented thanks to https://github.com/lishen2/isotp-c . The BLE side is a work in progress.
+Currently, the project works, with a simple example client in the `client` directory. A few issues remain to be ironed out around task priority - if Bluetooth messages are written too quickly, the ISO-TP message pump never catches up. 
 
 # A few notes about Macchina A0
 
