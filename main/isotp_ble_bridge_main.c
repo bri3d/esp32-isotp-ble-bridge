@@ -123,9 +123,9 @@ static void isotp_processing_task(void *arg)
         int ret = isotp_receive(&isotp_link, payload, 32, &out_size);
         xSemaphoreGive(isotp_mutex);
         if (ISOTP_RET_OK == ret) {
-            ESP_LOGI(EXAMPLE_TAG, "Received ISO-TP message with length: %04X", out_size);
+            ESP_LOGD(EXAMPLE_TAG, "Received ISO-TP message with length: %04X", out_size);
             for(int i = 0; i < out_size; i++) 
-                ESP_LOGI(EXAMPLE_TAG, "ISO-TP data %c", payload[i]);
+                ESP_LOGD(EXAMPLE_TAG, "ISO-TP data %c", payload[i]);
             ble_send(payload, out_size);
         }
         vTaskDelay(0);
@@ -148,7 +148,6 @@ static void send_queue_task(void *arg)
         }
         send_message_t msg;
         xQueueReceive(send_message_queue, &msg, portMAX_DELAY);
-        ESP_LOGI(EXAMPLE_TAG, "Received a message from SendQ with length %08X", msg.msg_length);
         xSemaphoreTake(isotp_mutex, (TickType_t)100);
         isotp_send(&isotp_link, msg.buffer, msg.msg_length);
         xSemaphoreGive(isotp_mutex);
