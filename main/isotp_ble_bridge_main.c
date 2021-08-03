@@ -24,6 +24,7 @@
 #define ISOTP_BUFSIZE 4096
 #define EXAMPLE_TAG "ISOTPtoBLE"
 
+#define ISOTP_MAX_RECEIVE_PAYLOAD 512
 #define SEND_IDENTIFIER 0x7E0
 #define RECEIVE_IDENTIFIER 0x7E8
 
@@ -124,9 +125,9 @@ static void isotp_processing_task(void *arg)
         isotp_poll(&isotp_link);
         xSemaphoreGive(isotp_mutex);
         uint16_t out_size;
-        uint8_t payload[512];
+        uint8_t payload[ISOTP_MAX_RECEIVE_PAYLOAD];
         xSemaphoreTake(isotp_mutex, (TickType_t)100);
-        int ret = isotp_receive(&isotp_link, payload, 32, &out_size);
+        int ret = isotp_receive(&isotp_link, payload, sizeof(payload), &out_size);
         xSemaphoreGive(isotp_mutex);
         if (ISOTP_RET_OK == ret) {
             ESP_LOGD(EXAMPLE_TAG, "Received ISO-TP message with length: %04X", out_size);
