@@ -11,6 +11,7 @@
 #include "soc/dport_reg.h"
 #include "isotp.h"
 #include "ble_server.h"
+#include "ws2812_control.h"
 
 /* --------------------- Definitions and static variables ------------------ */
 #define RX_TASK_PRIO 3 // Ensure we drain the RX queue as quickly as we reasonably can to prevent overflow and ensure the message pump has fresh data.
@@ -20,6 +21,8 @@
 #define TX_GPIO_NUM 5 // For A0
 #define RX_GPIO_NUM 4 // For A0
 #define SILENT_GPIO_NUM 21 // For A0
+#define LED_ENABLE_GPIO_NUM 13 // For A0
+#define LED_GPIO_NUM 2 // For A0
 #define GPIO_OUTPUT_PIN_SEL(X)  ((1ULL<<X))
 #define ISOTP_BUFSIZE 4096
 #define EXAMPLE_TAG "ISOTPtoBLE"
@@ -28,10 +31,13 @@
 #define SEND_IDENTIFIER 0x7E0
 #define RECEIVE_IDENTIFIER 0x7E8
 
+// TWAI/CAN configuration
 
 static const twai_general_config_t g_config = TWAI_GENERAL_CONFIG_DEFAULT(TX_GPIO_NUM, RX_GPIO_NUM, TWAI_MODE_NORMAL);
 static const twai_timing_config_t t_config = TWAI_TIMING_CONFIG_500KBITS();
 static const twai_filter_config_t f_config = TWAI_FILTER_CONFIG_ACCEPT_ALL();
+
+// Mutable globals for semaphores, queues, ISO-TP link
 
 static QueueHandle_t tx_task_queue;
 static QueueHandle_t send_message_queue;
@@ -43,14 +49,26 @@ static SemaphoreHandle_t isotp_wait_for_data;
 
 static IsoTpLink isotp_link;
 
-/* Alloc send and receive buffer statically in RAM */
+/* Alloc ISO-TP send and receive buffer statically in RAM, required by library */
 static uint8_t isotp_recv_buf[ISOTP_BUFSIZE];
 static uint8_t isotp_send_buf[ISOTP_BUFSIZE];
+
+// Simple struct for a dynamically sized send message
 
 typedef struct send_message{
     int32_t msg_length;
     uint8_t * buffer;
 } send_message_t;
+
+// LED colors
+
+static struct led_state red_led_state = {
+    .leds[0] = 0x008000
+};
+
+static struct led_state green_led_state = {
+    .leds[0] = 0x800000
+};
 
 /* ---------------------------- ISOTP Callbacks ---------------------------- */
 
@@ -164,7 +182,7 @@ static void send_queue_task(void *arg)
     vTaskDelete(NULL);
 }
 
-/* ----------- BLE callback ---------------- */
+/* ----------- BLE callbacks ---------------- */
 
 void received_from_ble(const void* src, size_t size) {
     ESP_LOGI(EXAMPLE_TAG, "Received a message from BLE stack with length %08X", size);
@@ -175,12 +193,39 @@ void received_from_ble(const void* src, size_t size) {
     xQueueSend(send_message_queue, &msg, pdMS_TO_TICKS(50));
 }
 
+void notifications_disabled() {
+    ws2812_write_leds(red_led_state);
+}
+
+void notifications_enabled() {
+    ws2812_write_leds(green_led_state);
+}
+
+
 /* ------------ Primary startup ---------------- */
 
 void app_main(void)
 {
+    // Configure LED enable pin (switches transistor to push LED)
+    gpio_config_t io_conf_led;
+    io_conf_led.intr_type = GPIO_INTR_DISABLE;
+    io_conf_led.mode = GPIO_MODE_OUTPUT;
+    io_conf_led.pin_bit_mask = GPIO_OUTPUT_PIN_SEL(LED_ENABLE_GPIO_NUM);
+    io_conf_led.pull_down_en = 0;
+    io_conf_led.pull_up_en = 0;
+    gpio_config(&io_conf_led);
+    gpio_set_level(LED_ENABLE_GPIO_NUM, 0);
+
+    // Configure LED to Red
+    ws2812_control_init(LED_GPIO_NUM);
+    ws2812_write_leds(red_led_state);
+
+    // Setup BLE server
+
     ble_server_callbacks callbacks = {
-        .data_received = received_from_ble
+        .data_received = received_from_ble,
+        .notifications_subscribed = notifications_enabled,
+        .notifications_unsubscribed = notifications_disabled
     };
     ble_server_setup(callbacks);
 
