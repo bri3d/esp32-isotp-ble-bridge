@@ -29,6 +29,10 @@
 #include "esp_bt_main.h"
 #include "ble_server.h"
 
+#define min(x,y) ( \
+    { __auto_type __x = (x); __auto_type __y = (y); \
+      __x < __y ? __x : __y; })
+
 #define GATTS_TABLE_TAG  "GATTS_ISOTP_BLE"
 
 #define SPP_PROFILE_NUM             1
@@ -374,13 +378,13 @@ void send_task(void *pvParameters)
 
 void spp_cmd_task(void * arg)
 {
-    uint8_t * cmd_id;
+    send_message_t cmd_msg;
 
     for(;;){
         vTaskDelay(50 / portTICK_PERIOD_MS);
-        if(xQueueReceive(cmd_cmd_queue, &cmd_id, portMAX_DELAY)) {
-            esp_log_buffer_char(GATTS_TABLE_TAG,(char *)(cmd_id),strlen((char *)cmd_id));
-            free(cmd_id);
+        if(xQueueReceive(cmd_cmd_queue, &cmd_msg, portMAX_DELAY)) {
+            server_callbacks.command_received(cmd_msg.buffer, cmd_msg.msg_length);
+            free(cmd_msg.buffer);
         }
     }
     vTaskDelete(NULL);
@@ -390,7 +394,7 @@ static void spp_task_init(void)
 {
     spp_send_queue = xQueueCreate(10, sizeof(send_message_t));
     xTaskCreate(send_task, "BLE_sendTask", 2048, NULL, 1, NULL);
-    cmd_cmd_queue = xQueueCreate(10, sizeof(uint32_t));
+    cmd_cmd_queue = xQueueCreate(10, sizeof(send_message_t));
     xTaskCreate(spp_cmd_task, "spp_cmd_task", 2048, NULL, 1, NULL);
 }
 
@@ -434,7 +438,7 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
     	case ESP_GATTS_READ_EVT:
             res = find_char_and_desr_index(p_data->read.handle);
             if(res == SPP_IDX_SPP_STATUS_VAL){
-                //TODO:client read the status characteristic
+                // Stack should have already auto-responded with the attr value??? 
             }
        	 break;
     	case ESP_GATTS_WRITE_EVT: {
@@ -442,15 +446,11 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
             if(p_data->write.is_prep == false){
                 ESP_LOGI(GATTS_TABLE_TAG, "ESP_GATTS_WRITE_EVT : handle = %d\n", res);
                 if(res == SPP_IDX_SPP_COMMAND_VAL){
-                    uint8_t * spp_cmd_buff = NULL;
-                    spp_cmd_buff = (uint8_t *)malloc((spp_mtu_size - 3) * sizeof(uint8_t));
-                    if(spp_cmd_buff == NULL){
-                        ESP_LOGE(GATTS_TABLE_TAG, "%s malloc failed\n", __func__);
-                        break;
-                    }
-                    memset(spp_cmd_buff,0x0,(spp_mtu_size - 3));
-                    memcpy(spp_cmd_buff,p_data->write.value,p_data->write.len);
-                    xQueueSend(cmd_cmd_queue,&spp_cmd_buff,10/portTICK_PERIOD_MS);
+                    send_message_t cmd_buf;
+                    cmd_buf.buffer = (uint8_t *) malloc(p_data->write.len);
+                    cmd_buf.msg_length = p_data->write.len;
+                    memcpy(cmd_buf.buffer, p_data->write.value, cmd_buf.msg_length);
+                    xQueueSend(cmd_cmd_queue,&cmd_buf,10/portTICK_PERIOD_MS);
                 }else if(res == SPP_IDX_SPP_DATA_NTF_CFG){
                     if((p_data->write.len == 2)&&(p_data->write.value[0] == 0x01)&&(p_data->write.value[1] == 0x00)){
                         enable_notification();
@@ -613,4 +613,9 @@ void ble_send(const void* src, size_t size) {
     msg.msg_length = size;
     memcpy(msg.buffer, src, size);
     xQueueSend(spp_send_queue, &msg, 50 / portTICK_PERIOD_MS);
+}
+
+void ble_set_status(const void* src, size_t size)
+{
+    memcpy(spp_status_val, src, min(size, sizeof(spp_status_val)));
 }

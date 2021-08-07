@@ -35,9 +35,11 @@ enum{
 typedef struct 
 {
 	void (*data_received)			(const void* src, size_t size);		/* Data received callback - a full frame has been constructed from the client. Buf is not guaranteed to live and should be copied. */
+    void (*command_received)        (uint8_t* cmd_str, size_t length);  /* Command received callback - a command was written to the command GATT */
     void (*notifications_subscribed)();
     void (*notifications_unsubscribed)();
 } ble_server_callbacks;
 
 void ble_server_setup(ble_server_callbacks callbacks);
 void ble_send(const void* src, size_t size);
+void ble_set_status(const void* src, size_t size);

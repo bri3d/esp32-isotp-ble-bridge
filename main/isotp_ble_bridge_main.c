@@ -14,16 +14,16 @@
 #include "ws2812_control.h"
 
 /* --------------------- Definitions and static variables ------------------ */
-#define RX_TASK_PRIO 3 // Ensure we drain the RX queue as quickly as we reasonably can to prevent overflow and ensure the message pump has fresh data.
-#define TX_TASK_PRIO 3 // Ensure we TX messages as quickly as we reasonably can to meet ISO15765-2 timing constraints
-#define ISOTP_TSK_PRIO 2 // Run the message pump at a higher priority than the main queue/dequeue task when messages are available
-#define MAIN_TSK_PRIO 1 // Run the main task at the same priority as the BLE queue/dequeue tasks to help in delivery ordering.
-#define TX_GPIO_NUM 5 // For A0
-#define RX_GPIO_NUM 4 // For A0
-#define SILENT_GPIO_NUM 21 // For A0
+#define RX_TASK_PRIO 3         // Ensure we drain the RX queue as quickly as we reasonably can to prevent overflow and ensure the message pump has fresh data.
+#define TX_TASK_PRIO 3         // Ensure we TX messages as quickly as we reasonably can to meet ISO15765-2 timing constraints
+#define ISOTP_TSK_PRIO 2       // Run the message pump at a higher priority than the main queue/dequeue task when messages are available
+#define MAIN_TSK_PRIO 1        // Run the main task at the same priority as the BLE queue/dequeue tasks to help in delivery ordering.
+#define TX_GPIO_NUM 5          // For A0
+#define RX_GPIO_NUM 4          // For A0
+#define SILENT_GPIO_NUM 21     // For A0
 #define LED_ENABLE_GPIO_NUM 13 // For A0
-#define LED_GPIO_NUM 2 // For A0
-#define GPIO_OUTPUT_PIN_SEL(X)  ((1ULL<<X))
+#define LED_GPIO_NUM 2         // For A0
+#define GPIO_OUTPUT_PIN_SEL(X) ((1ULL << X))
 #define ISOTP_BUFSIZE 4096
 #define EXAMPLE_TAG "ISOTPtoBLE"
 
@@ -49,41 +49,48 @@ static SemaphoreHandle_t isotp_wait_for_data;
 
 static IsoTpLink isotp_link;
 
+// Mutable globals for tx/rx id
+
+static uint32_t send_identifier = SEND_IDENTIFIER;
+static uint32_t receive_identifier = RECEIVE_IDENTIFIER;
+
 /* Alloc ISO-TP send and receive buffer statically in RAM, required by library */
 static uint8_t isotp_recv_buf[ISOTP_BUFSIZE];
 static uint8_t isotp_send_buf[ISOTP_BUFSIZE];
 
 // Simple struct for a dynamically sized send message
 
-typedef struct send_message{
+typedef struct send_message
+{
     int32_t msg_length;
-    uint8_t * buffer;
+    uint8_t *buffer;
 } send_message_t;
 
 // LED colors
 
 static struct led_state red_led_state = {
-    .leds[0] = 0x008000
-};
+    .leds[0] = 0x008000};
 
 static struct led_state green_led_state = {
-    .leds[0] = 0x800000
-};
+    .leds[0] = 0x800000};
 
 /* ---------------------------- ISOTP Callbacks ---------------------------- */
 
-int isotp_user_send_can(const uint32_t arbitration_id, const uint8_t* data, const uint8_t size) {
+int isotp_user_send_can(const uint32_t arbitration_id, const uint8_t *data, const uint8_t size)
+{
     twai_message_t frame = {.identifier = arbitration_id, .data_length_code = size};
     memcpy(frame.data, data, sizeof(frame.data));
     xQueueSend(tx_task_queue, &frame, portMAX_DELAY);
-    return ISOTP_RET_OK;                           
+    return ISOTP_RET_OK;
 }
 
-uint32_t isotp_user_get_ms(void) {
+uint32_t isotp_user_get_ms(void)
+{
     return (esp_timer_get_time() / 1000ULL) & 0xFFFFFFFF;
 }
 
-void isotp_user_debug(const char* message, ...) {
+void isotp_user_debug(const char *message, ...)
+{
 }
 
 /* --------------------------- Tasks and Functions -------------------------- */
@@ -94,7 +101,8 @@ static void twai_receive_task(void *arg)
     {
         twai_message_t rx_msg;
         twai_receive(&rx_msg, portMAX_DELAY); // If no message available, should block and yield.
-        if(rx_msg.identifier == RECEIVE_IDENTIFIER) {
+        if (rx_msg.identifier == receive_identifier)
+        {
             ESP_LOGD(EXAMPLE_TAG, "Received Message with identifier %08X and length %08X", rx_msg.identifier, rx_msg.data_length_code);
             for (int i = 0; i < rx_msg.data_length_code; i++)
                 ESP_LOGD(EXAMPLE_TAG, "RX Data: %02X", rx_msg.data[i]);
@@ -121,22 +129,30 @@ static void twai_transmit_task(void *arg)
     vTaskDelete(NULL);
 }
 
+static void configure_isotp_link()
+{
+    xSemaphoreTake(isotp_mutex, (TickType_t)100);
+    isotp_init_link(&isotp_link, send_identifier,
+                    isotp_send_buf, sizeof(isotp_send_buf),
+                    isotp_recv_buf, sizeof(isotp_recv_buf));
+    xSemaphoreGive(isotp_mutex);
+}
+
 static void isotp_processing_task(void *arg)
 {
     xSemaphoreTake(isotp_task_sem, portMAX_DELAY);
     ESP_ERROR_CHECK(twai_start());
     ESP_LOGI(EXAMPLE_TAG, "CAN/TWAI Driver started");
-    isotp_init_link(&isotp_link, SEND_IDENTIFIER,
-						isotp_send_buf, sizeof(isotp_send_buf), 
-						isotp_recv_buf, sizeof(isotp_recv_buf));
+    configure_isotp_link();
     ESP_LOGI(EXAMPLE_TAG, "ISO-TP Handler started");
 
     xSemaphoreGive(send_queue_start);
 
     while (1)
     {
-        if(isotp_link.send_status != ISOTP_SEND_STATUS_INPROGRESS && isotp_link.receive_status != ISOTP_RECEIVE_STATUS_INPROGRESS) {
-            // Link is idle, wait for new data before pumping loop. 
+        if (isotp_link.send_status != ISOTP_SEND_STATUS_INPROGRESS && isotp_link.receive_status != ISOTP_RECEIVE_STATUS_INPROGRESS)
+        {
+            // Link is idle, wait for new data before pumping loop.
             xSemaphoreTake(isotp_wait_for_data, portMAX_DELAY);
         }
         xSemaphoreTake(isotp_mutex, (TickType_t)100);
@@ -147,9 +163,10 @@ static void isotp_processing_task(void *arg)
         xSemaphoreTake(isotp_mutex, (TickType_t)100);
         int ret = isotp_receive(&isotp_link, payload, sizeof(payload), &out_size);
         xSemaphoreGive(isotp_mutex);
-        if (ISOTP_RET_OK == ret) {
+        if (ISOTP_RET_OK == ret)
+        {
             ESP_LOGD(EXAMPLE_TAG, "Received ISO-TP message with length: %04X", out_size);
-            for(int i = 0; i < out_size; i++) 
+            for (int i = 0; i < out_size; i++)
                 ESP_LOGD(EXAMPLE_TAG, "ISO-TP data %c", payload[i]);
             ble_send(payload, out_size);
         }
@@ -166,9 +183,12 @@ static void send_queue_task(void *arg)
     {
         twai_status_info_t status_info;
         twai_get_status_info(&status_info);
-        if (status_info.state == TWAI_STATE_BUS_OFF) {
+        if (status_info.state == TWAI_STATE_BUS_OFF)
+        {
             twai_initiate_recovery();
-        } else if (status_info.state == TWAI_STATE_STOPPED) {
+        }
+        else if (status_info.state == TWAI_STATE_STOPPED)
+        {
             twai_start();
         }
         send_message_t msg;
@@ -184,7 +204,8 @@ static void send_queue_task(void *arg)
 
 /* ----------- BLE callbacks ---------------- */
 
-void received_from_ble(const void* src, size_t size) {
+void received_from_ble(const void *src, size_t size)
+{
     ESP_LOGI(EXAMPLE_TAG, "Received a message from BLE stack with length %08X", size);
     send_message_t msg;
     msg.buffer = malloc(size);
@@ -193,14 +214,29 @@ void received_from_ble(const void* src, size_t size) {
     xQueueSend(send_message_queue, &msg, pdMS_TO_TICKS(50));
 }
 
-void notifications_disabled() {
+void notifications_disabled()
+{
     ws2812_write_leds(red_led_state);
 }
 
-void notifications_enabled() {
+void notifications_enabled()
+{
     ws2812_write_leds(green_led_state);
 }
 
+void command_received(uint8_t *cmd_str, size_t cmd_length)
+{
+    if (cmd_str[0] == 0x1)
+    {
+        // Command 1 : Change Tx/Rx addresses
+        uint16_t tx_address = (uint16_t)cmd_str[2] | ((uint16_t)cmd_str[1] << 8);
+        uint16_t rx_address = (uint16_t)cmd_str[4] | ((uint16_t)cmd_str[3] << 8);
+        send_identifier = tx_address;
+        receive_identifier = rx_address;
+        ESP_LOGI(EXAMPLE_TAG, "Changing Tx ID to %04X, Rx ID to %04X", send_identifier, receive_identifier);
+        configure_isotp_link();
+    }
+}
 
 /* ------------ Primary startup ---------------- */
 
@@ -225,8 +261,7 @@ void app_main(void)
     ble_server_callbacks callbacks = {
         .data_received = received_from_ble,
         .notifications_subscribed = notifications_enabled,
-        .notifications_unsubscribed = notifications_disabled
-    };
+        .notifications_unsubscribed = notifications_disabled};
     ble_server_setup(callbacks);
 
     // Need to pull down GPIO 21 to unset the "S" (Silent Mode) pin on CAN Xceiver.
@@ -257,7 +292,7 @@ void app_main(void)
     // "TWAI_tx" blocks on a send queue which is populated by the callback from the ISO-TP library
     // "ISOTP_process" pumps the ISOTP library's "poll" method, which will call the send queue callback if a message needs to be sent.
     // ISOTP_process also polls the ISOTP library's non-blocking receive method, which will produce a message if one is ready.
-    // "MAIN_process_send_queue" processes queued messages from the BLE stack. These messages are dynamically allocated when they are queued and freed in this task. 
+    // "MAIN_process_send_queue" processes queued messages from the BLE stack. These messages are dynamically allocated when they are queued and freed in this task.
 
     xTaskCreatePinnedToCore(twai_receive_task, "TWAI_rx", 4096, NULL, RX_TASK_PRIO, NULL, tskNO_AFFINITY);
     xTaskCreatePinnedToCore(twai_transmit_task, "TWAI_tx", 4096, NULL, TX_TASK_PRIO, NULL, tskNO_AFFINITY);
