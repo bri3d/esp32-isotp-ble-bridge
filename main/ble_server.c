@@ -160,7 +160,7 @@ static const uint8_t  spp_command_val[10] = {0x00};
 
 ///SPP Service - status characteristic, notify&read
 static const uint16_t spp_status_uuid = ESP_GATT_UUID_SPP_COMMAND_NOTIFY;
-static const uint8_t  spp_status_val[10] = {0x00};
+static uint8_t  spp_status_val[10] = {0x00};
 static const uint8_t  spp_status_ccc[2] = {0x00, 0x00};
 
 ///Full HRS Database Description - Used to add attributes into the database

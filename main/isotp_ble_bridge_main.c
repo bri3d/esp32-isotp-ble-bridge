@@ -69,10 +69,10 @@ typedef struct send_message
 // LED colors
 
 static struct led_state red_led_state = {
-    .leds[0] = 0x008000};
+    .leds[0] = 0x004000};
 
 static struct led_state green_led_state = {
-    .leds[0] = 0x800000};
+    .leds[0] = 0x400000};
 
 /* ---------------------------- ISOTP Callbacks ---------------------------- */
 
