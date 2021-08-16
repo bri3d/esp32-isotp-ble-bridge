@@ -4,7 +4,7 @@ The goal of this project is to build a native Macchina A0 firmware which can bri
 
 This project is built using the ESP32 native toolchain ESP-IDF (based on FreeRTOS) and can be compiled using `idf.py build` .
 
-Currently, the project works, with a simple example client in the `client` directory. A few issues remain to be ironed out around task priority - if Bluetooth messages are written too quickly, the ISO-TP message pump never catches up. 
+Currently, the project works, with a simple example client in the `client` directory. 
 
 # A few notes about Macchina A0
 
@@ -15,6 +15,9 @@ Clever, dead simple board - a CAN transceiver, voltage regulators, and an ESP32-
 * GPIO 21 is attached to the "S" (Silent) pin on the CAN transceiver. It must be pulled LOW to allow the CAN transceiver to communicate.
 * GPIO 13 switches power to the WS2812 LED
 * GPIO 2 is the WS2812 LED control line.
+* GPIO 35 is attached to voltage sense for the VIn. The multipliers and formula can be found here. https://github.com/rnd-ash/Macchina-J2534/blob/master/firmware/pt_device_a0.cpp#L30
+* GPIO 32 (CS), 19 (DI), 18 (CLK), and 23 (DO) are supposedly attached to a W25N01GV 1Gbit (128MB!) flash chip in the schematic, but I think this is an option purchased separately - `A0 can also be custom ordered with additional solder down memory`
+
 
 And that's about it!
 
