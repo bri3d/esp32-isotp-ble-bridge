@@ -12,6 +12,7 @@
 #include "isotp.h"
 #include "ble_server.h"
 #include "wifi_server.h"
+#include "web_server.h"
 #include "ws2812_control.h"
 
 /* --------------------- Definitions and static variables ------------------ */
@@ -267,6 +268,9 @@ void app_main(void)
 
     // Setup WiFi server
     wifi_server_setup();
+
+    // Setup web server
+    web_server_setup();
 
     // Need to pull down GPIO 21 to unset the "S" (Silent Mode) pin on CAN Xceiver.
     gpio_config_t io_conf;
