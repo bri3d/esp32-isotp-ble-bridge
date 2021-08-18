@@ -1,6 +1,8 @@
 #include "esp_http_server.h"
 #include "esp_log.h"
 #include "web_server.h"
+#include "messages.h"
+#include "queues.h"
 
 const char *WEB_SERVER_TAG = "web_server";
 
@@ -11,16 +13,15 @@ struct async_resp_arg {
 
 void ws_async_send(void *arg)
 {
-    const char * data = "Async data";
+    uint8_t response[] = {0x00, 0x00, 0x07, 0xE8, 0x7E, 0x00}; // TODO:
     struct async_resp_arg *resp_arg = arg;
     httpd_handle_t hd = resp_arg->hd;
     int fd = resp_arg->fd;
     httpd_ws_frame_t ws_pkt;
     memset(&ws_pkt, 0, sizeof(httpd_ws_frame_t));
-    ws_pkt.payload = (uint8_t*)data;
-    ws_pkt.len = strlen(data);
-    ws_pkt.type = HTTPD_WS_TYPE_TEXT;
-
+    ws_pkt.payload = (uint8_t*)response;
+    ws_pkt.len = sizeof(response);
+    ws_pkt.type = HTTPD_WS_TYPE_BINARY;
     httpd_ws_send_frame_async(hd, fd, &ws_pkt);
     free(resp_arg);
 }
@@ -40,46 +41,29 @@ esp_err_t websocket_handler(httpd_req_t *req)
         return ESP_OK;
     }
     httpd_ws_frame_t ws_pkt;
-    uint8_t *buf = NULL;
+    size_t max_len = 512 + 4; // largest PDU + 4 bytes for arbitration ID TODO: PDU max length should be 0x1000
+    uint8_t *buf = calloc(1, max_len);
     memset(&ws_pkt, 0, sizeof(httpd_ws_frame_t));
-    ws_pkt.type = HTTPD_WS_TYPE_TEXT;
-    /* Set max_len = 0 to get the frame len */
-    esp_err_t ret = httpd_ws_recv_frame(req, &ws_pkt, 0);
+    ws_pkt.type = HTTPD_WS_TYPE_BINARY;
+    ws_pkt.payload = buf;
+    esp_err_t ret = httpd_ws_recv_frame(req, &ws_pkt, max_len);
     if (ret != ESP_OK) {
-        ESP_LOGE(WEB_SERVER_TAG, "httpd_ws_recv_frame failed to get frame len with %d", ret);
+        ESP_LOGE(WEB_SERVER_TAG, "httpd_ws_recv_frame failed to get frame with %d", ret);
         return ret;
     }
     ESP_LOGI(WEB_SERVER_TAG, "frame len is %d", ws_pkt.len);
-    if (ws_pkt.len) {
-        /* ws_pkt.len + 1 is for NULL termination as we are expecting a string */
-        buf = calloc(1, ws_pkt.len + 1);
-        if (buf == NULL) {
-            ESP_LOGE(WEB_SERVER_TAG, "Failed to calloc memory for buf");
-            return ESP_ERR_NO_MEM;
-        }
-        ws_pkt.payload = buf;
-        /* Set max_len = ws_pkt.len to get the frame payload */
-        ret = httpd_ws_recv_frame(req, &ws_pkt, ws_pkt.len);
-        if (ret != ESP_OK) {
-            ESP_LOGE(WEB_SERVER_TAG, "httpd_ws_recv_frame failed with %d", ret);
-            free(buf);
-            return ret;
-        }
-        ESP_LOGI(WEB_SERVER_TAG, "Got packet with message: %s", ws_pkt.payload);
-    }
     ESP_LOGI(WEB_SERVER_TAG, "Packet type: %d", ws_pkt.type);
-    if (ws_pkt.type == HTTPD_WS_TYPE_TEXT &&
-        strcmp((char*)ws_pkt.payload,"Trigger async") == 0) {
-        free(buf);
-        return trigger_async_send(req->handle, req);
+    if (ws_pkt.type == HTTPD_WS_TYPE_BINARY) {
+        for (size_t i = 0; i < ws_pkt.len; ++i) {
+            ESP_LOGI(WEB_SERVER_TAG, "ws_pkt.payload[%04x] = %02x", i, ws_pkt.payload[i]);
+        }
+        ESP_LOGI(WEB_SERVER_TAG, "adding websocket payload to send_message_queue");
+        send_message_t msg;
+        msg.buffer = ws_pkt.payload;
+        msg.msg_length = ws_pkt.len;
+        xQueueSend(send_message_queue, &msg, pdMS_TO_TICKS(50));
     }
-
-    ret = httpd_ws_send_frame(req, &ws_pkt);
-    if (ret != ESP_OK) {
-        ESP_LOGE(WEB_SERVER_TAG, "httpd_ws_send_frame failed with %d", ret);
-    }
-    free(buf);
-    return ret;
+    return ESP_OK;
 }
 
 esp_err_t index_handler(httpd_req_t *req)

@@ -14,6 +14,8 @@
 #include "wifi_server.h"
 #include "web_server.h"
 #include "ws2812_control.h"
+#include "messages.h"
+#include "queues.h"
 
 /* --------------------- Definitions and static variables ------------------ */
 #define RX_TASK_PRIO 3         // Ensure we drain the RX queue as quickly as we reasonably can to prevent overflow and ensure the message pump has fresh data.
@@ -41,8 +43,6 @@ static const twai_filter_config_t f_config = TWAI_FILTER_CONFIG_ACCEPT_ALL();
 
 // Mutable globals for semaphores, queues, ISO-TP link
 
-static QueueHandle_t tx_task_queue;
-static QueueHandle_t send_message_queue;
 static SemaphoreHandle_t isotp_task_sem;
 static SemaphoreHandle_t send_queue_start;
 static SemaphoreHandle_t done_sem;
@@ -59,14 +59,6 @@ static uint32_t receive_identifier = RECEIVE_IDENTIFIER;
 /* Alloc ISO-TP send and receive buffer statically in RAM, required by library */
 static uint8_t isotp_recv_buf[ISOTP_BUFSIZE];
 static uint8_t isotp_send_buf[ISOTP_BUFSIZE];
-
-// Simple struct for a dynamically sized send message
-
-typedef struct send_message
-{
-    int32_t msg_length;
-    uint8_t *buffer;
-} send_message_t;
 
 // LED colors
 

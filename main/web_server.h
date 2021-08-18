@@ -4,7 +4,7 @@ static const char *index_html = R"EOF(
 <!doctype html>
 <html>
   <head>
-    <title>Macchina A0</title>
+    <title>esp32-isotp-ble-bridge</title>
   </head>
   <body>
     <script type="text/javascript">
@@ -16,7 +16,7 @@ static const char *index_html = R"EOF(
           (value >> 24) & 0xFF
         ]
       }
-      const sendCanFrame = (socket, arbitrationId, frame) => {
+      const sendIsoTpRequest = (socket, arbitrationId, frame) => {
         const arbitrationIdBytes = uint32ToBytes(arbitrationId)
         const payload = [].concat(arbitrationIdBytes, frame)
         socket.send(Uint8Array.from(payload))
@@ -31,9 +31,9 @@ static const char *index_html = R"EOF(
           console.log(event)
         })
         setInterval(() => {
-          sendCanFrame(socket, 0x7E0, [
-            0x02, 0x3E, 0x00, 0x55, 0x55, 0x55, 0x55, 0x55
-          ])
+          const requestArbitrationId = 0x7E0 // ECU
+          const pdu = [0x3E, 0x00] // tester present
+          sendIsoTpRequest(socket, requestArbitrationId, pdu)
         }, 1000)
       }
       run()
