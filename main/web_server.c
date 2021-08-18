@@ -132,5 +132,4 @@ void web_server_setup()
         return;
     }
     ESP_LOGI(WEB_SERVER_TAG, "Error starting server!");
-    return NULL;
 }
