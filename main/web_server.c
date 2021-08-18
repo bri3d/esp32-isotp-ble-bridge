@@ -55,7 +55,7 @@ const char *index_html = R"EOF(
 
 const char *WEB_SERVER_TAG = "web_server";
 
-httpd_req_t *current_websocket_req = NULL;
+httpd_handle_t server = NULL;
 
 esp_err_t websocket_handler(httpd_req_t *req)
 {
@@ -63,7 +63,6 @@ esp_err_t websocket_handler(httpd_req_t *req)
         ESP_LOGI(WEB_SERVER_TAG, "Handshake done, the new connection was opened");
         return ESP_OK;
     }
-    current_websocket_req = req;
     httpd_ws_frame_t ws_pkt;
     size_t max_len = 512 + 4; // largest PDU + 4 bytes for arbitration ID TODO: PDU max length should be 0x1000 (0xFFF + serviceId)
     uint8_t *buf = calloc(1, max_len);
@@ -131,21 +130,29 @@ void websocket_send_task(void *pvParameters)
     while (1) {
         if (xQueueReceive(websocket_send_queue, (void*)&event, (TickType_t)portMAX_DELAY)) {
             ESP_LOGI(WEB_SERVER_TAG, "Got WebSocket message to send with length %08X", event.msg_length);
-            if (current_websocket_req == NULL) {
-                ESP_LOGI(WEB_SERVER_TAG, "no connected websocket; skipping");
-                continue;
-            }
+            // build outgoing websocket frame
+            // format is: RX_ID TX_ID PDU
+            // TODO: this is really prone to "race conditions" if tx/rx ID were changed in between message send + receive
             httpd_ws_frame_t ws_pkt;
             memset(&ws_pkt, 0, sizeof(httpd_ws_frame_t));
-            // format is: RX_ID TX_ID PDU
             ws_pkt.payload = malloc(event.msg_length + 8);
             memcpy(ws_pkt.payload, &send_identifier, sizeof(uint32_t));
             memcpy(ws_pkt.payload + 4, &receive_identifier, sizeof(uint32_t));
             memcpy(ws_pkt.payload + 8, event.buffer, event.msg_length);
             ws_pkt.len = event.msg_length + 8;
             ws_pkt.type = HTTPD_WS_TYPE_BINARY;
-            esp_err_t ret  = httpd_ws_send_frame(current_websocket_req, &ws_pkt);
-            ESP_LOGI(WEB_SERVER_TAG, "httpd_ws_send_frame: %d", ret);
+            // get connected clients
+            int fds[4];
+            size_t num_fds = 4;
+            ESP_ERROR_CHECK(httpd_get_client_list(server, &num_fds, fds));
+            ESP_LOGI(WEB_SERVER_TAG, "num_fds = %d", num_fds);
+            // loop over clients
+            for (int i = 0; i < num_fds; ++i) {
+                int fd = fds[i];
+                esp_err_t ret  = httpd_ws_send_frame_async(server, fd, &ws_pkt);
+                ESP_LOGI(WEB_SERVER_TAG, "httpd_ws_send_frame: %d", ret);
+            }
+            // cleanup
             free(ws_pkt.payload);
             free(event.buffer);
         }
@@ -155,7 +162,6 @@ void websocket_send_task(void *pvParameters)
 
 void web_server_setup()
 {
-    httpd_handle_t server = NULL;
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     ESP_LOGI(WEB_SERVER_TAG, "Starting server on port: %d", config.server_port);
     if (httpd_start(&server, &config) == ESP_OK) {
