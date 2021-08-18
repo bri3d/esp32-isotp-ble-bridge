@@ -107,10 +107,11 @@ esp_err_t websocket_handler(httpd_req_t *req)
         }
         ESP_LOGI(WEB_SERVER_TAG, "adding websocket payload to send_message_queue");
         // format is: RX_ID TX_ID PDU
-        send_message_t msg;
         update_send_identifier(read_uint32_be(ws_pkt.payload));
         update_receive_identifier(read_uint32_be(ws_pkt.payload + 4));
-        msg.buffer = ws_pkt.payload + 8;
+        send_message_t msg;
+        msg.buffer = calloc(1, ws_pkt.len - 8);
+        memcpy(msg.buffer, ws_pkt.payload, ws_pkt.len - 8);
         msg.msg_length = ws_pkt.len - 8;
         xQueueSend(send_message_queue, &msg, pdMS_TO_TICKS(50));
     }
