@@ -5,6 +5,7 @@ idf_component_register(
   "ble_server.c"
   "wifi_server.c"
   "web_server.c"
+  "arbitration_identifiers.c"
   "ws2812_control.c"
   INCLUDE_DIRS "."
 )

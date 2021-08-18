@@ -16,6 +16,7 @@
 #include "ws2812_control.h"
 #include "messages.h"
 #include "queues.h"
+#include "arbitration_identifiers.h"
 
 /* --------------------- Definitions and static variables ------------------ */
 #define RX_TASK_PRIO 3         // Ensure we drain the RX queue as quickly as we reasonably can to prevent overflow and ensure the message pump has fresh data.
@@ -32,8 +33,6 @@
 #define EXAMPLE_TAG "ISOTPtoBLE"
 
 #define ISOTP_MAX_RECEIVE_PAYLOAD 512
-#define SEND_IDENTIFIER 0x7E0
-#define RECEIVE_IDENTIFIER 0x7E8
 
 // TWAI/CAN configuration
 
@@ -50,11 +49,6 @@ static SemaphoreHandle_t isotp_mutex;
 static SemaphoreHandle_t isotp_wait_for_data;
 
 static IsoTpLink isotp_link;
-
-// Mutable globals for tx/rx id
-
-static uint32_t send_identifier = SEND_IDENTIFIER;
-static uint32_t receive_identifier = RECEIVE_IDENTIFIER;
 
 /* Alloc ISO-TP send and receive buffer statically in RAM, required by library */
 static uint8_t isotp_recv_buf[ISOTP_BUFSIZE];
@@ -226,8 +220,8 @@ void command_received(uint8_t *cmd_str, size_t cmd_length)
         // Command 1 : Change Tx/Rx addresses
         uint16_t tx_address = (uint16_t)cmd_str[2] | ((uint16_t)cmd_str[1] << 8);
         uint16_t rx_address = (uint16_t)cmd_str[4] | ((uint16_t)cmd_str[3] << 8);
-        send_identifier = tx_address;
-        receive_identifier = rx_address;
+        update_send_identifier(tx_address);
+        update_receive_identifier(rx_address);
         ESP_LOGI(EXAMPLE_TAG, "Changing Tx ID to %04X, Rx ID to %04X", send_identifier, receive_identifier);
         configure_isotp_link();
     }

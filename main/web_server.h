@@ -16,9 +16,14 @@ static const char *index_html = R"EOF(
           (value >> 24) & 0xFF
         ]
       }
-      const sendIsoTpRequest = (socket, arbitrationId, frame) => {
-        const arbitrationIdBytes = uint32ToBytes(arbitrationId)
-        const payload = [].concat(arbitrationIdBytes, frame)
+      const sendIsoTpRequest = (socket, requestArbitrationId, replyArbitrationId, frame) => {
+        const requestArbitrationIdBytes = uint32ToBytes(requestArbitrationId)
+        const replyArbitrationIdBytes = uint32ToBytes(replyArbitrationId)
+        const payload = [].concat(
+          requestArbitrationIdBytes,
+          replyArbitrationIdBytes,
+          frame
+        )
         socket.send(Uint8Array.from(payload))
       }
       const run = async () => {
@@ -32,8 +37,9 @@ static const char *index_html = R"EOF(
         })
         setInterval(() => {
           const requestArbitrationId = 0x7E0 // ECU
+          const replyArbitrationId = 0x7E8 // ECU
           const pdu = [0x3E, 0x00] // tester present
-          sendIsoTpRequest(socket, requestArbitrationId, pdu)
+          sendIsoTpRequest(socket, requestArbitrationId, replyArbitrationId, pdu)
         }, 1000)
       }
       run()

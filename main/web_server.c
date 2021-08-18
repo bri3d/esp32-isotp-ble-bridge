@@ -3,6 +3,7 @@
 #include "web_server.h"
 #include "messages.h"
 #include "queues.h"
+#include "arbitration_identifiers.h"
 
 const char *WEB_SERVER_TAG = "web_server";
 
@@ -23,8 +24,11 @@ void ws_async_send(void *arg)
     send_message_t event = resp_arg->event;
     httpd_ws_frame_t ws_pkt;
     memset(&ws_pkt, 0, sizeof(httpd_ws_frame_t));
-    ws_pkt.payload = (uint8_t*)event.buffer;
-    ws_pkt.len = event.msg_length;
+    // format is: RX_ID TX_ID PDU
+    update_send_identifier(read_uint32_be(event.buffer));
+    update_receive_identifier(read_uint32_be(event.buffer + 4));
+    ws_pkt.payload = (uint8_t*)event.buffer + 8;
+    ws_pkt.len = event.msg_length - 8;
     ws_pkt.type = HTTPD_WS_TYPE_BINARY;
     httpd_ws_send_frame_async(hd, fd, &ws_pkt);
     free(resp_arg);
@@ -55,9 +59,12 @@ esp_err_t websocket_handler(httpd_req_t *req)
             ESP_LOGI(WEB_SERVER_TAG, "ws_pkt.payload[%04x] = %02x", i, ws_pkt.payload[i]);
         }
         ESP_LOGI(WEB_SERVER_TAG, "adding websocket payload to send_message_queue");
+        // format is: RX_ID TX_ID PDU
         send_message_t msg;
-        msg.buffer = ws_pkt.payload;
-        msg.msg_length = ws_pkt.len;
+        update_send_identifier(read_uint32_be(ws_pkt.payload));
+        update_receive_identifier(read_uint32_be(ws_pkt.payload + 4));
+        msg.buffer = ws_pkt.payload + 8;
+        msg.msg_length = ws_pkt.len - 8;
         xQueueSend(send_message_queue, &msg, pdMS_TO_TICKS(50));
     }
     return ESP_OK;
