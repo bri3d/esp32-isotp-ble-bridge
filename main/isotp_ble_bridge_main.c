@@ -11,6 +11,7 @@
 #include "soc/dport_reg.h"
 #include "isotp.h"
 #include "ble_server.h"
+#include "wifi_server.h"
 #include "ws2812_control.h"
 
 /* --------------------- Definitions and static variables ------------------ */
@@ -263,6 +264,9 @@ void app_main(void)
         .notifications_subscribed = notifications_enabled,
         .notifications_unsubscribed = notifications_disabled};
     ble_server_setup(callbacks);
+
+    // Setup WiFi server
+    wifi_server_setup();
 
     // Need to pull down GPIO 21 to unset the "S" (Silent Mode) pin on CAN Xceiver.
     gpio_config_t io_conf;
