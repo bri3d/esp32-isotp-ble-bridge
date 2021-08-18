@@ -1,7 +1,7 @@
 #include <stdint.h>
 
-static uint32_t send_identifier = 0x7E0; // ECU
-static uint32_t receive_identifier = 0x7E8; // ECU
+uint32_t send_identifier;
+uint32_t receive_identifier;
 
 void update_send_identifier(uint32_t new_send_identifier);
 void update_receive_identifier(uint32_t new_receive_identifier);

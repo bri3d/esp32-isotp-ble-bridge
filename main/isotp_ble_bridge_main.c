@@ -246,6 +246,10 @@ void app_main(void)
     ws2812_control_init(LED_GPIO_NUM);
     ws2812_write_leds(red_led_state);
 
+    // default to communicating with ECU
+    update_send_identifier(0x7E0);
+    update_receive_identifier(0x7E8);
+
     //Create semaphores and tasks
     websocket_send_queue = xQueueCreate(10, sizeof(send_message_t));
     tx_task_queue = xQueueCreate(10, sizeof(twai_message_t));
@@ -284,6 +288,7 @@ void app_main(void)
     web_server_setup();
 
     // Tasks :
+    // "websocket_sendTask" polls the websocket_send_queue queue. This queue is populated when a ISO-TP PDU is received.
     // "TWAI_rx" polls the receive queue (blocking) and once a message exists, forwards it into the ISO-TP library.
     // "TWAI_tx" blocks on a send queue which is populated by the callback from the ISO-TP library
     // "ISOTP_process" pumps the ISOTP library's "poll" method, which will call the send queue callback if a message needs to be sent.
