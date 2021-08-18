@@ -251,19 +251,14 @@ void app_main(void)
     ws2812_control_init(LED_GPIO_NUM);
     ws2812_write_leds(red_led_state);
 
-    // Setup BLE server
-
-    ble_server_callbacks callbacks = {
-        .data_received = received_from_ble,
-        .notifications_subscribed = notifications_enabled,
-        .notifications_unsubscribed = notifications_disabled};
-    ble_server_setup(callbacks);
-
-    // Setup WiFi server
-    wifi_server_setup();
-
-    // Setup web server
-    web_server_setup();
+    //Create semaphores and tasks
+    tx_task_queue = xQueueCreate(10, sizeof(twai_message_t));
+    send_message_queue = xQueueCreate(10, sizeof(send_message_t));
+    isotp_task_sem = xSemaphoreCreateBinary();
+    done_sem = xSemaphoreCreateBinary();
+    send_queue_start = xSemaphoreCreateBinary();
+    isotp_wait_for_data = xSemaphoreCreateBinary();
+    isotp_mutex = xSemaphoreCreateMutex();
 
     // Need to pull down GPIO 21 to unset the "S" (Silent Mode) pin on CAN Xceiver.
     gpio_config_t io_conf;
@@ -279,14 +274,18 @@ void app_main(void)
     ESP_ERROR_CHECK(twai_driver_install(&g_config, &t_config, &f_config));
     ESP_LOGI(EXAMPLE_TAG, "CAN/TWAI Driver installed");
 
-    //Create semaphores and tasks
-    tx_task_queue = xQueueCreate(10, sizeof(twai_message_t));
-    send_message_queue = xQueueCreate(10, sizeof(send_message_t));
-    isotp_task_sem = xSemaphoreCreateBinary();
-    done_sem = xSemaphoreCreateBinary();
-    send_queue_start = xSemaphoreCreateBinary();
-    isotp_wait_for_data = xSemaphoreCreateBinary();
-    isotp_mutex = xSemaphoreCreateMutex();
+    // Setup BLE server
+    ble_server_callbacks callbacks = {
+        .data_received = received_from_ble,
+        .notifications_subscribed = notifications_enabled,
+        .notifications_unsubscribed = notifications_disabled};
+    ble_server_setup(callbacks);
+
+    // Setup WiFi server
+    wifi_server_setup();
+
+    // Setup web server
+    web_server_setup();
 
     // Tasks :
     // "TWAI_rx" polls the receive queue (blocking) and once a message exists, forwards it into the ISO-TP library.
