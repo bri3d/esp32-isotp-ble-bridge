@@ -7,7 +7,6 @@
 
 const char *WEB_SERVER_TAG = "web_server";
 
-QueueHandle_t websocket_send_queue = NULL;
 httpd_req_t *current_websocket_req = NULL;
 
 struct async_resp_arg {
@@ -42,7 +41,7 @@ esp_err_t websocket_handler(httpd_req_t *req)
         return ESP_OK;
     }
     httpd_ws_frame_t ws_pkt;
-    size_t max_len = 512 + 4; // largest PDU + 4 bytes for arbitration ID TODO: PDU max length should be 0x1000
+    size_t max_len = 512 + 4; // largest PDU + 4 bytes for arbitration ID TODO: PDU max length should be 0x1000 (0xFFF + serviceId)
     uint8_t *buf = calloc(1, max_len);
     memset(&ws_pkt, 0, sizeof(httpd_ws_frame_t));
     ws_pkt.type = HTTPD_WS_TYPE_BINARY;
@@ -120,21 +119,17 @@ void websocket_send_task(void *pvParameters)
     vTaskDelete(NULL);
 }
 
-httpd_handle_t web_server_setup()
+void web_server_setup()
 {
-    // start send task
-    websocket_send_queue = xQueueCreate(10, sizeof(send_message_t));
-    xTaskCreate(websocket_send_task, "websocket_sendTask", 2048, NULL, 1, NULL);
-    // Start the httpd server
     httpd_handle_t server = NULL;
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-    ESP_LOGI(WEB_SERVER_TAG, "Starting server on port: '%d'", config.server_port);
+    ESP_LOGI(WEB_SERVER_TAG, "Starting server on port: %d", config.server_port);
     if (httpd_start(&server, &config) == ESP_OK) {
         // Registering the ws handler
         ESP_LOGI(WEB_SERVER_TAG, "Registering URI handlers");
         httpd_register_uri_handler(server, &index_uri);
         httpd_register_uri_handler(server, &websocket_uri);
-        return server;
+        return;
     }
     ESP_LOGI(WEB_SERVER_TAG, "Error starting server!");
     return NULL;

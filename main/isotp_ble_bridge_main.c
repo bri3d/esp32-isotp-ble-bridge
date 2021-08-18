@@ -22,6 +22,7 @@
 #define RX_TASK_PRIO 3         // Ensure we drain the RX queue as quickly as we reasonably can to prevent overflow and ensure the message pump has fresh data.
 #define TX_TASK_PRIO 3         // Ensure we TX messages as quickly as we reasonably can to meet ISO15765-2 timing constraints
 #define ISOTP_TSK_PRIO 2       // Run the message pump at a higher priority than the main queue/dequeue task when messages are available
+#define SOCKET_TASK_PRI 1      // Run the socket task at a low priority.
 #define MAIN_TSK_PRIO 1        // Run the main task at the same priority as the BLE queue/dequeue tasks to help in delivery ordering.
 #define TX_GPIO_NUM 5          // For A0
 #define RX_GPIO_NUM 4          // For A0
@@ -246,6 +247,7 @@ void app_main(void)
     ws2812_write_leds(red_led_state);
 
     //Create semaphores and tasks
+    websocket_send_queue = xQueueCreate(10, sizeof(send_message_t));
     tx_task_queue = xQueueCreate(10, sizeof(twai_message_t));
     send_message_queue = xQueueCreate(10, sizeof(send_message_t));
     isotp_task_sem = xSemaphoreCreateBinary();
@@ -288,6 +290,7 @@ void app_main(void)
     // ISOTP_process also polls the ISOTP library's non-blocking receive method, which will produce a message if one is ready.
     // "MAIN_process_send_queue" processes queued messages from the BLE stack. These messages are dynamically allocated when they are queued and freed in this task.
 
+    xTaskCreatePinnedToCore(websocket_send_task, "websocket_sendTask", 4096, NULL, SOCKET_TASK_PRI, NULL, tskNO_AFFINITY);
     xTaskCreatePinnedToCore(twai_receive_task, "TWAI_rx", 4096, NULL, RX_TASK_PRIO, NULL, tskNO_AFFINITY);
     xTaskCreatePinnedToCore(twai_transmit_task, "TWAI_tx", 4096, NULL, TX_TASK_PRIO, NULL, tskNO_AFFINITY);
     xTaskCreatePinnedToCore(isotp_processing_task, "ISOTP_process", 4096, NULL, ISOTP_TSK_PRIO, NULL, tskNO_AFFINITY);

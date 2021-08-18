@@ -1,5 +1,3 @@
-#include "esp_http_server.h"
-
 static const char *index_html = R"EOF(
 <!doctype html>
 <html>
@@ -48,5 +46,6 @@ static const char *index_html = R"EOF(
 </html>
 )EOF";
 
+void websocket_send_task(void *pvParameters);
 void websocket_send(const void* src, size_t size);
-httpd_handle_t web_server_setup();
+void web_server_setup();
