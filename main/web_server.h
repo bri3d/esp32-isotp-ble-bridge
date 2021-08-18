@@ -42,4 +42,5 @@ static const char *index_html = R"EOF(
 </html>
 )EOF";
 
+void websocket_send(const void* src, size_t size);
 httpd_handle_t web_server_setup();

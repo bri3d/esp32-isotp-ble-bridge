@@ -6,38 +6,35 @@
 
 const char *WEB_SERVER_TAG = "web_server";
 
+QueueHandle_t websocket_send_queue = NULL;
+httpd_req_t *current_websocket_req = NULL;
+
 struct async_resp_arg {
     httpd_handle_t hd;
     int fd;
+    send_message_t event;
 };
 
 void ws_async_send(void *arg)
 {
-    uint8_t response[] = {0x00, 0x00, 0x07, 0xE8, 0x7E, 0x00}; // TODO:
     struct async_resp_arg *resp_arg = arg;
     httpd_handle_t hd = resp_arg->hd;
     int fd = resp_arg->fd;
+    send_message_t event = resp_arg->event;
     httpd_ws_frame_t ws_pkt;
     memset(&ws_pkt, 0, sizeof(httpd_ws_frame_t));
-    ws_pkt.payload = (uint8_t*)response;
-    ws_pkt.len = sizeof(response);
+    ws_pkt.payload = (uint8_t*)event.buffer;
+    ws_pkt.len = event.msg_length;
     ws_pkt.type = HTTPD_WS_TYPE_BINARY;
     httpd_ws_send_frame_async(hd, fd, &ws_pkt);
     free(resp_arg);
-}
-
-esp_err_t trigger_async_send(httpd_handle_t handle, httpd_req_t *req)
-{
-    struct async_resp_arg *resp_arg = malloc(sizeof(struct async_resp_arg));
-    resp_arg->hd = req->handle;
-    resp_arg->fd = httpd_req_to_sockfd(req);
-    return httpd_queue_work(handle, ws_async_send, resp_arg);
 }
 
 esp_err_t websocket_handler(httpd_req_t *req)
 {
     if (req->method == HTTP_GET) {
         ESP_LOGI(WEB_SERVER_TAG, "Handshake done, the new connection was opened");
+        current_websocket_req = req;
         return ESP_OK;
     }
     httpd_ws_frame_t ws_pkt;
@@ -89,11 +86,41 @@ const httpd_uri_t websocket_uri = {
     .is_websocket = true
 };
 
+void websocket_send(const void* src, size_t size) {
+    send_message_t msg;
+    msg.buffer = malloc(size);
+    msg.msg_length = size;
+    memcpy(msg.buffer, src, size);
+    xQueueSend(websocket_send_queue, &msg, 50 / portTICK_PERIOD_MS);
+}
+
+void websocket_send_task(void *pvParameters)
+{
+    send_message_t event;
+    while (1) {
+        if (xQueueReceive(websocket_send_queue, (void *)&event, (TickType_t)portMAX_DELAY)) {
+            ESP_LOGI(WEB_SERVER_TAG, "Got WebSocket message to send with length %08X", event.msg_length);
+            if (current_websocket_req == NULL) {
+                ESP_LOGI(WEB_SERVER_TAG, "no connected websocket; skipping");
+                continue;
+            }
+            struct async_resp_arg *resp_arg = malloc(sizeof(struct async_resp_arg));
+            resp_arg->hd = current_websocket_req->handle;
+            resp_arg->fd = httpd_req_to_sockfd(current_websocket_req);
+            return httpd_queue_work(current_websocket_req->handle, ws_async_send, resp_arg);
+        }
+    }
+    vTaskDelete(NULL);
+}
+
 httpd_handle_t web_server_setup()
 {
+    // start send task
+    websocket_send_queue = xQueueCreate(10, sizeof(send_message_t));
+    xTaskCreate(websocket_send_task, "websocket_sendTask", 2048, NULL, 1, NULL);
+    // Start the httpd server
     httpd_handle_t server = NULL;
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-    // Start the httpd server
     ESP_LOGI(WEB_SERVER_TAG, "Starting server on port: '%d'", config.server_port);
     if (httpd_start(&server, &config) == ESP_OK) {
         // Registering the ws handler

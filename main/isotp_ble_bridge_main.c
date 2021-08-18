@@ -163,6 +163,7 @@ static void isotp_processing_task(void *arg)
             for (int i = 0; i < out_size; i++)
                 ESP_LOGD(EXAMPLE_TAG, "ISO-TP data %c", payload[i]);
             ble_send(payload, out_size);
+            websocket_send(payload, out_size);
         }
         vTaskDelay(0); // Allow higher priority tasks to run, for example Rx/Tx
     }
