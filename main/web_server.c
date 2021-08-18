@@ -84,9 +84,8 @@ esp_err_t websocket_handler(httpd_req_t *req)
 
 esp_err_t index_handler(httpd_req_t *req)
 {
-    const char* resp_str = "Hello, world!";
-    httpd_resp_set_hdr(req, "Content-Type", "text/plain");
-    httpd_resp_send(req, resp_str, HTTPD_RESP_USE_STRLEN);
+    httpd_resp_set_hdr(req, "Content-Type", "text/html");
+    httpd_resp_send(req, index_html, HTTPD_RESP_USE_STRLEN);
     return ESP_OK;
 }
 
