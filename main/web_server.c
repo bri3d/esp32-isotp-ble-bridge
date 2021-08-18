@@ -105,7 +105,7 @@ void websocket_send_task(void *pvParameters)
 {
     send_message_t event;
     while (1) {
-        if (xQueueReceive(websocket_send_queue, (void *)&event, (TickType_t)portMAX_DELAY)) {
+        if (xQueueReceive(websocket_send_queue, (void*)&event, (TickType_t)portMAX_DELAY)) {
             ESP_LOGI(WEB_SERVER_TAG, "Got WebSocket message to send with length %08X", event.msg_length);
             if (current_websocket_req == NULL) {
                 ESP_LOGI(WEB_SERVER_TAG, "no connected websocket; skipping");
@@ -114,7 +114,7 @@ void websocket_send_task(void *pvParameters)
             struct async_resp_arg *resp_arg = malloc(sizeof(struct async_resp_arg));
             resp_arg->hd = current_websocket_req->handle;
             resp_arg->fd = httpd_req_to_sockfd(current_websocket_req);
-            return httpd_queue_work(current_websocket_req->handle, ws_async_send, resp_arg);
+            ESP_ERROR_CHECK(httpd_queue_work(current_websocket_req->handle, ws_async_send, resp_arg));
         }
     }
     vTaskDelete(NULL);
