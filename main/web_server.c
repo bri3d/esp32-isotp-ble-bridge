@@ -55,10 +55,11 @@ const char *index_html = R"EOF(
 
 const char *WEB_SERVER_TAG = "web_server";
 
-httpd_req_t *current_websocket_req = NULL;
+httpd_handle_t *current_websocket_handle = NULL;
+int current_websocket_fd = -1;
 
 struct async_resp_arg {
-    httpd_handle_t hd;
+    httpd_handle_t handle;
     int fd;
     send_message_t event;
 };
@@ -66,7 +67,7 @@ struct async_resp_arg {
 void ws_async_send(void *arg)
 {
     struct async_resp_arg *resp_arg = arg;
-    httpd_handle_t hd = resp_arg->hd;
+    httpd_handle_t handle = resp_arg->handle;
     int fd = resp_arg->fd;
     send_message_t event = resp_arg->event;
     httpd_ws_frame_t ws_pkt;
@@ -77,7 +78,7 @@ void ws_async_send(void *arg)
     ws_pkt.payload = (uint8_t*)event.buffer + 8;
     ws_pkt.len = event.msg_length - 8;
     ws_pkt.type = HTTPD_WS_TYPE_BINARY;
-    httpd_ws_send_frame_async(hd, fd, &ws_pkt);
+    httpd_ws_send_frame_async(handle, fd, &ws_pkt);
     free(resp_arg);
 }
 
@@ -85,9 +86,10 @@ esp_err_t websocket_handler(httpd_req_t *req)
 {
     if (req->method == HTTP_GET) {
         ESP_LOGI(WEB_SERVER_TAG, "Handshake done, the new connection was opened");
-        current_websocket_req = req;
         return ESP_OK;
     }
+    current_websocket_handle = req->handle;
+    current_websocket_fd = httpd_req_to_sockfd(req);
     httpd_ws_frame_t ws_pkt;
     size_t max_len = 512 + 4; // largest PDU + 4 bytes for arbitration ID TODO: PDU max length should be 0x1000 (0xFFF + serviceId)
     uint8_t *buf = calloc(1, max_len);
@@ -111,7 +113,7 @@ esp_err_t websocket_handler(httpd_req_t *req)
         update_receive_identifier(read_uint32_be(ws_pkt.payload + 4));
         send_message_t msg;
         msg.buffer = calloc(1, ws_pkt.len - 8);
-        memcpy(msg.buffer, ws_pkt.payload, ws_pkt.len - 8);
+        memcpy(msg.buffer, ws_pkt.payload + 8, ws_pkt.len - 8);
         msg.msg_length = ws_pkt.len - 8;
         xQueueSend(send_message_queue, &msg, pdMS_TO_TICKS(50));
     }
@@ -155,14 +157,14 @@ void websocket_send_task(void *pvParameters)
     while (1) {
         if (xQueueReceive(websocket_send_queue, (void*)&event, (TickType_t)portMAX_DELAY)) {
             ESP_LOGI(WEB_SERVER_TAG, "Got WebSocket message to send with length %08X", event.msg_length);
-            if (current_websocket_req == NULL) {
+            if (current_websocket_handle == NULL) {
                 ESP_LOGI(WEB_SERVER_TAG, "no connected websocket; skipping");
                 continue;
             }
             struct async_resp_arg *resp_arg = malloc(sizeof(struct async_resp_arg));
-            resp_arg->hd = current_websocket_req->handle;
-            resp_arg->fd = httpd_req_to_sockfd(current_websocket_req);
-            ESP_ERROR_CHECK(httpd_queue_work(current_websocket_req->handle, ws_async_send, resp_arg));
+            resp_arg->handle = current_websocket_handle;
+            resp_arg->fd = current_websocket_fd;
+            ESP_ERROR_CHECK(httpd_queue_work(current_websocket_handle, ws_async_send, resp_arg));
         }
     }
     vTaskDelete(NULL);

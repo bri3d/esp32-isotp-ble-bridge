@@ -184,6 +184,7 @@ static void send_queue_task(void *arg)
         send_message_t msg;
         xQueueReceive(send_message_queue, &msg, portMAX_DELAY);
         xSemaphoreTake(isotp_mutex, (TickType_t)100);
+        ESP_LOGI(EXAMPLE_TAG, "send_queue_task: sending message with %d size (tx id: %08x / rx id: %08x)", msg.msg_length, send_identifier, receive_identifier);
         isotp_send(&isotp_link, msg.buffer, msg.msg_length);
         xSemaphoreGive(isotp_mutex);
         xSemaphoreGive(isotp_wait_for_data);
