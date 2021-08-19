@@ -11,12 +11,18 @@
 #include "soc/dport_reg.h"
 #include "isotp.h"
 #include "ble_server.h"
+#include "wifi_server.h"
+#include "web_server.h"
 #include "ws2812_control.h"
+#include "messages.h"
+#include "queues.h"
+#include "arbitration_identifiers.h"
 
 /* --------------------- Definitions and static variables ------------------ */
 #define RX_TASK_PRIO 3         // Ensure we drain the RX queue as quickly as we reasonably can to prevent overflow and ensure the message pump has fresh data.
 #define TX_TASK_PRIO 3         // Ensure we TX messages as quickly as we reasonably can to meet ISO15765-2 timing constraints
 #define ISOTP_TSK_PRIO 2       // Run the message pump at a higher priority than the main queue/dequeue task when messages are available
+#define SOCKET_TASK_PRI 1      // Run the socket task at a low priority.
 #define MAIN_TSK_PRIO 1        // Run the main task at the same priority as the BLE queue/dequeue tasks to help in delivery ordering.
 #define TX_GPIO_NUM 5          // For A0
 #define RX_GPIO_NUM 4          // For A0
@@ -28,8 +34,6 @@
 #define EXAMPLE_TAG "ISOTPtoBLE"
 
 #define ISOTP_MAX_RECEIVE_PAYLOAD 512
-#define SEND_IDENTIFIER 0x7E0
-#define RECEIVE_IDENTIFIER 0x7E8
 
 // TWAI/CAN configuration
 
@@ -39,8 +43,6 @@ static const twai_filter_config_t f_config = TWAI_FILTER_CONFIG_ACCEPT_ALL();
 
 // Mutable globals for semaphores, queues, ISO-TP link
 
-static QueueHandle_t tx_task_queue;
-static QueueHandle_t send_message_queue;
 static SemaphoreHandle_t isotp_task_sem;
 static SemaphoreHandle_t send_queue_start;
 static SemaphoreHandle_t done_sem;
@@ -49,22 +51,9 @@ static SemaphoreHandle_t isotp_wait_for_data;
 
 static IsoTpLink isotp_link;
 
-// Mutable globals for tx/rx id
-
-static uint32_t send_identifier = SEND_IDENTIFIER;
-static uint32_t receive_identifier = RECEIVE_IDENTIFIER;
-
 /* Alloc ISO-TP send and receive buffer statically in RAM, required by library */
 static uint8_t isotp_recv_buf[ISOTP_BUFSIZE];
 static uint8_t isotp_send_buf[ISOTP_BUFSIZE];
-
-// Simple struct for a dynamically sized send message
-
-typedef struct send_message
-{
-    int32_t msg_length;
-    uint8_t *buffer;
-} send_message_t;
 
 // LED colors
 
@@ -169,6 +158,7 @@ static void isotp_processing_task(void *arg)
             for (int i = 0; i < out_size; i++)
                 ESP_LOGD(EXAMPLE_TAG, "ISO-TP data %c", payload[i]);
             ble_send(payload, out_size);
+            websocket_send(payload, out_size);
         }
         vTaskDelay(0); // Allow higher priority tasks to run, for example Rx/Tx
     }
@@ -194,6 +184,7 @@ static void send_queue_task(void *arg)
         send_message_t msg;
         xQueueReceive(send_message_queue, &msg, portMAX_DELAY);
         xSemaphoreTake(isotp_mutex, (TickType_t)100);
+        ESP_LOGI(EXAMPLE_TAG, "send_queue_task: sending message with %d size (tx id: %08x / rx id: %08x)", msg.msg_length, send_identifier, receive_identifier);
         isotp_send(&isotp_link, msg.buffer, msg.msg_length);
         xSemaphoreGive(isotp_mutex);
         xSemaphoreGive(isotp_wait_for_data);
@@ -231,8 +222,8 @@ void command_received(uint8_t *cmd_str, size_t cmd_length)
         // Command 1 : Change Tx/Rx addresses
         uint16_t tx_address = (uint16_t)cmd_str[2] | ((uint16_t)cmd_str[1] << 8);
         uint16_t rx_address = (uint16_t)cmd_str[4] | ((uint16_t)cmd_str[3] << 8);
-        send_identifier = tx_address;
-        receive_identifier = rx_address;
+        update_send_identifier(tx_address);
+        update_receive_identifier(rx_address);
         ESP_LOGI(EXAMPLE_TAG, "Changing Tx ID to %04X, Rx ID to %04X", send_identifier, receive_identifier);
         configure_isotp_link();
     }
@@ -256,13 +247,19 @@ void app_main(void)
     ws2812_control_init(LED_GPIO_NUM);
     ws2812_write_leds(red_led_state);
 
-    // Setup BLE server
+    // default to communicating with ECU
+    update_send_identifier(0x7E0);
+    update_receive_identifier(0x7E8);
 
-    ble_server_callbacks callbacks = {
-        .data_received = received_from_ble,
-        .notifications_subscribed = notifications_enabled,
-        .notifications_unsubscribed = notifications_disabled};
-    ble_server_setup(callbacks);
+    //Create semaphores and tasks
+    websocket_send_queue = xQueueCreate(10, sizeof(send_message_t));
+    tx_task_queue = xQueueCreate(10, sizeof(twai_message_t));
+    send_message_queue = xQueueCreate(10, sizeof(send_message_t));
+    isotp_task_sem = xSemaphoreCreateBinary();
+    done_sem = xSemaphoreCreateBinary();
+    send_queue_start = xSemaphoreCreateBinary();
+    isotp_wait_for_data = xSemaphoreCreateBinary();
+    isotp_mutex = xSemaphoreCreateMutex();
 
     // Need to pull down GPIO 21 to unset the "S" (Silent Mode) pin on CAN Xceiver.
     gpio_config_t io_conf;
@@ -278,22 +275,28 @@ void app_main(void)
     ESP_ERROR_CHECK(twai_driver_install(&g_config, &t_config, &f_config));
     ESP_LOGI(EXAMPLE_TAG, "CAN/TWAI Driver installed");
 
-    //Create semaphores and tasks
-    tx_task_queue = xQueueCreate(10, sizeof(twai_message_t));
-    send_message_queue = xQueueCreate(10, sizeof(send_message_t));
-    isotp_task_sem = xSemaphoreCreateBinary();
-    done_sem = xSemaphoreCreateBinary();
-    send_queue_start = xSemaphoreCreateBinary();
-    isotp_wait_for_data = xSemaphoreCreateBinary();
-    isotp_mutex = xSemaphoreCreateMutex();
+    // Setup BLE server
+    ble_server_callbacks callbacks = {
+        .data_received = received_from_ble,
+        .notifications_subscribed = notifications_enabled,
+        .notifications_unsubscribed = notifications_disabled};
+    ble_server_setup(callbacks);
+
+    // Setup WiFi server
+    wifi_server_setup();
+
+    // Setup web server
+    web_server_setup();
 
     // Tasks :
+    // "websocket_sendTask" polls the websocket_send_queue queue. This queue is populated when a ISO-TP PDU is received.
     // "TWAI_rx" polls the receive queue (blocking) and once a message exists, forwards it into the ISO-TP library.
     // "TWAI_tx" blocks on a send queue which is populated by the callback from the ISO-TP library
     // "ISOTP_process" pumps the ISOTP library's "poll" method, which will call the send queue callback if a message needs to be sent.
     // ISOTP_process also polls the ISOTP library's non-blocking receive method, which will produce a message if one is ready.
     // "MAIN_process_send_queue" processes queued messages from the BLE stack. These messages are dynamically allocated when they are queued and freed in this task.
 
+    xTaskCreatePinnedToCore(websocket_send_task, "websocket_sendTask", 4096, NULL, SOCKET_TASK_PRI, NULL, tskNO_AFFINITY);
     xTaskCreatePinnedToCore(twai_receive_task, "TWAI_rx", 4096, NULL, RX_TASK_PRIO, NULL, tskNO_AFFINITY);
     xTaskCreatePinnedToCore(twai_transmit_task, "TWAI_tx", 4096, NULL, TX_TASK_PRIO, NULL, tskNO_AFFINITY);
     xTaskCreatePinnedToCore(isotp_processing_task, "ISOTP_process", 4096, NULL, ISOTP_TSK_PRIO, NULL, tskNO_AFFINITY);
