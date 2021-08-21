@@ -280,7 +280,8 @@ void app_main(void)
     ble_server_callbacks callbacks = {
         .data_received = received_from_ble,
         .notifications_subscribed = notifications_enabled,
-        .notifications_unsubscribed = notifications_disabled};
+        .notifications_unsubscribed = notifications_disabled
+    };
     ble_server_setup(callbacks);
 
     // Setup WiFi server
