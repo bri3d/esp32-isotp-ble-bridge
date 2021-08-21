@@ -43,7 +43,7 @@
 #define SPP_SVC_INST_ID             0
 
 /// SPP Service
-static const uint16_t spp_service_uuid = 0xABF0;
+static const uint16_t spp_service_uuid = 0xABF0; // '0000abf0-0000-1000-8000-00805f9b34fb'
 /// Characteristic UUID
 #define ESP_GATT_UUID_SPP_DATA_RECEIVE      0xABF1 // '0000abf1-0000-1000-8000-00805f9b34fb'
 #define ESP_GATT_UUID_SPP_DATA_NOTIFY       0xABF2 // '0000abf2-0000-1000-8000-00805f9b34fb'
@@ -385,8 +385,7 @@ void spp_cmd_task(void * arg)
     for(;;){
         vTaskDelay(50 / portTICK_PERIOD_MS);
         if(xQueueReceive(cmd_cmd_queue, &cmd_msg, portMAX_DELAY)) {
-            // TODO: cmd_msg.tx_id
-            // TODO: cmd_msg.rx_id
+            // TODO: we got rid of the need to globally set TX_ID / RX_ID
             server_callbacks.command_received(cmd_msg.buffer, cmd_msg.msg_length);
             free(cmd_msg.buffer);
         }
@@ -457,8 +456,8 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
                 ESP_LOGI(GATTS_TABLE_TAG, "ESP_GATTS_WRITE_EVT : handle = %d\n", res);
                 if(res == SPP_IDX_SPP_COMMAND_VAL){
                     send_message_t cmd_buf;
-                    // TODO: cmd_buf.tx_id
-                    // TODO: cmd_buf.rx_id
+                    // TODO: cmd_buf.tx_id?
+                    // TODO: cmd_buf.rx_id?
                     cmd_buf.buffer = (uint8_t *) malloc(p_data->write.len);
                     cmd_buf.msg_length = p_data->write.len;
                     memcpy(cmd_buf.buffer, p_data->write.value, cmd_buf.msg_length);

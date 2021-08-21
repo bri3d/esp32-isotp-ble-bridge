@@ -92,6 +92,10 @@ uint32_t isotp_user_get_ms(void)
     return (esp_timer_get_time() / 1000ULL) & 0xFFFFFFFF;
 }
 
+void isotp_user_debug(const char *message, ...)
+{
+}
+
 /* --------------------------- Tasks and Functions -------------------------- */
 
 static void twai_receive_task(void *arg)

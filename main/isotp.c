@@ -1,7 +1,6 @@
 #include <stdint.h>
 #include "assert.h"
 #include "isotp.h"
-#include "esp_log.h"
 
 ///////////////////////////////////////////////////////
 ///                 STATIC FUNCTIONS                ///
@@ -148,7 +147,7 @@ static int isotp_send_consecutive_frame(IsoTpLink* link) {
 static int isotp_receive_single_frame(IsoTpLink *link, IsoTpCanMessage *message, uint8_t len) {
     /* check data length */
     if ((0 == message->as.single_frame.SF_DL) || (message->as.single_frame.SF_DL > (len - 1))) {
-        ESP_LOGI("isotp", "Single-frame length too small.");
+        isotp_user_debug("Single-frame length too small.");
         return ISOTP_RET_LENGTH;
     }
 
@@ -163,7 +162,7 @@ static int isotp_receive_first_frame(IsoTpLink *link, IsoTpCanMessage *message, 
     uint16_t payload_length;
 
     if (8 != len) {
-        ESP_LOGI("isotp", "First frame should be 8 bytes in length.");
+        isotp_user_debug("First frame should be 8 bytes in length.");
         return ISOTP_RET_LENGTH;
     }
 
@@ -173,12 +172,12 @@ static int isotp_receive_first_frame(IsoTpLink *link, IsoTpCanMessage *message, 
 
     /* should not use multiple frame transmition */
     if (payload_length <= 7) {
-        ESP_LOGI("isotp", "Should not use multiple frame transmission.");
+        isotp_user_debug("Should not use multiple frame transmission.");
         return ISOTP_RET_LENGTH;
     }
     
     if (payload_length > link->receive_buf_size) {
-        ESP_LOGI("isotp", "Multi-frame response too large for receiving buffer.");
+        isotp_user_debug("Multi-frame response too large for receiving buffer.");
         return ISOTP_RET_OVERFLOW;
     }
     
@@ -205,7 +204,7 @@ static int isotp_receive_consecutive_frame(IsoTpLink *link, IsoTpCanMessage *mes
         remaining_bytes = sizeof(message->as.consecutive_frame.data);
     }
     if (remaining_bytes > len - 1) {
-        ESP_LOGI("isotp", "Consecutive frame too short.");
+        isotp_user_debug("Consecutive frame too short.");
         return ISOTP_RET_LENGTH;
     }
 
@@ -223,7 +222,7 @@ static int isotp_receive_consecutive_frame(IsoTpLink *link, IsoTpCanMessage *mes
 static int isotp_receive_flow_control_frame(IsoTpLink *link, IsoTpCanMessage *message, uint8_t len) {
     /* check message length */
     if (len < 3) {
-        ESP_LOGI("isotp", "Flow control frame too short.");
+        isotp_user_debug("Flow control frame too short.");
         return ISOTP_RET_LENGTH;
     }
 
@@ -242,19 +241,19 @@ int isotp_send_with_id(IsoTpLink *link, uint32_t id, const uint8_t payload[], ui
     int ret;
 
     if (link == 0x0) {
-        ESP_LOGI("isotp", "Link is null!");
+        isotp_user_debug("Link is null!");
         return ISOTP_RET_ERROR;
     }
 
     if (size > link->send_buf_size) {
-        ESP_LOGI("isotp", "Message size too large. Increase ISO_TP_MAX_MESSAGE_SIZE to set a larger buffer\n");
+        isotp_user_debug("Message size too large. Increase ISO_TP_MAX_MESSAGE_SIZE to set a larger buffer\n");
         char message[128];
         sprintf(&message[0], "Attempted to send %d bytes; max size is %d!\n", size, link->send_buf_size);
         return ISOTP_RET_OVERFLOW;
     }
 
     if (ISOTP_SEND_STATUS_INPROGRESS == link->send_status) {
-        ESP_LOGI("isotp", "Abort previous message, transmission in progress.\n");
+        isotp_user_debug("Abort previous message, transmission in progress.\n");
         return ISOTP_RET_INPROGRESS;
     }
 
@@ -286,10 +285,10 @@ int isotp_send_with_id(IsoTpLink *link, uint32_t id, const uint8_t payload[], ui
 }
 
 void isotp_on_can_message(IsoTpLink *link, uint8_t *data, uint8_t len) {
+    isotp_user_debug("isotp_on_can_message len = %d", len);
+
     IsoTpCanMessage message;
     int ret;
-
-    ESP_LOGI("isotp", "isotp_on_can_message len = %d", len);
     
     if (len < 2 || len > 8) {
         return;
@@ -317,7 +316,7 @@ void isotp_on_can_message(IsoTpLink *link, uint8_t *data, uint8_t len) {
             break;
         }
         case ISOTP_PCI_TYPE_FIRST_FRAME: {
-            ESP_LOGI("isotp", "isotp_on_can_message: ISOTP_PCI_TYPE_FIRST_FRAME");
+            isotp_user_debug("isotp_on_can_message: ISOTP_PCI_TYPE_FIRST_FRAME");
             /* update protocol result */
             if (ISOTP_RECEIVE_STATUS_INPROGRESS == link->receive_status) {
                 link->receive_protocol_result = ISOTP_PROTOCOL_RESULT_UNEXP_PDU;
@@ -353,7 +352,7 @@ void isotp_on_can_message(IsoTpLink *link, uint8_t *data, uint8_t len) {
             break;
         }
         case ISOTP_PCI_TYPE_CONSECUTIVE_FRAME: {
-            ESP_LOGI("isotp", "isotp_on_can_message: ISOTP_PCI_TYPE_CONSECUTIVE_FRAME");
+            isotp_user_debug("isotp_on_can_message: ISOTP_PCI_TYPE_CONSECUTIVE_FRAME");
             /* check if in receiving status */
             if (ISOTP_RECEIVE_STATUS_INPROGRESS != link->receive_status) {
                 link->receive_protocol_result = ISOTP_PROTOCOL_RESULT_UNEXP_PDU;
@@ -390,7 +389,7 @@ void isotp_on_can_message(IsoTpLink *link, uint8_t *data, uint8_t len) {
             break;
         }
         case ISOTP_PCI_TYPE_FLOW_CONTROL_FRAME:
-            ESP_LOGI("isotp", "isotp_on_can_message: ISOTP_PCI_TYPE_FLOW_CONTROL_FRAME");
+            isotp_user_debug("isotp_on_can_message: ISOTP_PCI_TYPE_FLOW_CONTROL_FRAME");
             /* handle fc frame only when sending in progress  */
             if (ISOTP_SEND_STATUS_INPROGRESS != link->send_status) {
                 break;
@@ -459,7 +458,7 @@ int isotp_receive(IsoTpLink *link, uint8_t *payload, const uint16_t payload_size
 }
 
 void isotp_init_link(IsoTpLink *link, uint32_t tx_id, uint32_t rx_id, uint8_t *sendbuf, uint16_t sendbufsize, uint8_t *recvbuf, uint16_t recvbufsize) {
-    ESP_LOGI("isotp", "isotp_init_link: tx_id = %08x rx_id = %08x", tx_id, rx_id);
+    isotp_user_debug("isotp_init_link: tx_id = %08x rx_id = %08x", tx_id, rx_id);
     memset(link, 0, sizeof(*link));
     link->receive_status = ISOTP_RECEIVE_STATUS_IDLE;
     link->send_status = ISOTP_SEND_STATUS_IDLE;
