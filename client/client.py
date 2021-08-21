@@ -35,9 +35,9 @@ async def run(debug=False):
         logger.info(f"Connected: {client.is_connected}")
         services = await client.get_services()
         for service in services:
-            print(service)
-            for c in service.characteristics:
-                print(c)
+            print("service: ", service)
+            for characteristic in service.characteristics:
+                print("characteristic: ", characteristic)
         await client.start_notify(NOTIFY_CHARACTERISTIC_UUID, notification_handler)
         while(True):
             await client.write_gatt_char(WRITE_CHARACTERISTIC_UUID, bytes([0x22, 0xF1, 0x90]))

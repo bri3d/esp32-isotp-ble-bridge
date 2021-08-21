@@ -49,7 +49,10 @@ static SemaphoreHandle_t done_sem;
 static SemaphoreHandle_t isotp_mutex;
 static SemaphoreHandle_t isotp_wait_for_data;
 
-static IsoTpLink isotp_link;
+static IsoTpLink ecu_isotp_link;
+static IsoTpLink tcu_isotp_link;
+static IsoTpLink ptcu_isotp_link;
+static IsoTpLink gateway_isotp_link;
 
 /* Alloc ISO-TP send and receive buffer statically in RAM, required by library */
 static uint8_t isotp_recv_buf[ISOTP_BUFSIZE];
@@ -92,15 +95,33 @@ static void twai_receive_task(void *arg)
         twai_message_t rx_msg;
         twai_receive(&rx_msg, portMAX_DELAY); // If no message available, should block and yield.
         ESP_LOGI(EXAMPLE_TAG, "Received Message with identifier %08X and length %08X", rx_msg.identifier, rx_msg.data_length_code);
-        if (rx_msg.identifier == receive_identifier)
-        {
-            for (int i = 0; i < rx_msg.data_length_code; i++)
-                ESP_LOGI(EXAMPLE_TAG, "RX Data: %02X", rx_msg.data[i]);
-            xSemaphoreTake(isotp_mutex, (TickType_t)100);
-            isotp_on_can_message(&isotp_link, rx_msg.data, rx_msg.data_length_code);
-            xSemaphoreGive(isotp_mutex);
-            xSemaphoreGive(isotp_wait_for_data);
+        for (int i = 0; i < rx_msg.data_length_code; i++) {
+            ESP_LOGI(EXAMPLE_TAG, "RX Data: %02X", rx_msg.data[i]);
         }
+        xSemaphoreTake(isotp_mutex, (TickType_t)100);
+        switch (rx_msg.identifier) {
+            case 0x7E8: { // ECU
+                isotp_on_can_message(&ecu_isotp_link, rx_msg.data, rx_msg.data_length_code);
+                break;
+            }
+            case 0x7E9: { // TCU
+                isotp_on_can_message(&tcu_isotp_link, rx_msg.data, rx_msg.data_length_code);
+                break;
+            }
+            case 0x7E5: { // PTCU
+                isotp_on_can_message(&ptcu_isotp_link, rx_msg.data, rx_msg.data_length_code);
+                break;
+            }
+            case 0x587: { // gateway
+                isotp_on_can_message(&gateway_isotp_link, rx_msg.data, rx_msg.data_length_code);
+                break;
+            }
+            default: {
+                break;
+            }
+        }
+        xSemaphoreGive(isotp_mutex);
+        xSemaphoreGive(isotp_wait_for_data);
     }
     vTaskDelete(NULL);
 }
@@ -119,28 +140,30 @@ static void twai_transmit_task(void *arg)
     vTaskDelete(NULL);
 }
 
-static void configure_isotp_link()
+static void configure_isotp_links()
 {
     xSemaphoreTake(isotp_mutex, (TickType_t)100);
-    isotp_init_link(&isotp_link, send_identifier,
-                    isotp_send_buf, sizeof(isotp_send_buf),
-                    isotp_recv_buf, sizeof(isotp_recv_buf));
+    isotp_init_link(&ecu_isotp_link, 0x7E0, 0x7E8, isotp_send_buf, sizeof(isotp_send_buf), isotp_recv_buf, sizeof(isotp_recv_buf));
+    isotp_init_link(&tcu_isotp_link, 0x7E1, 0x7E9, isotp_send_buf, sizeof(isotp_send_buf), isotp_recv_buf, sizeof(isotp_recv_buf));
+    isotp_init_link(&ptcu_isotp_link, 0x7E5, 0x7ED, isotp_send_buf, sizeof(isotp_send_buf), isotp_recv_buf, sizeof(isotp_recv_buf));
+    isotp_init_link(&gateway_isotp_link, 0x607, 0x587, isotp_send_buf, sizeof(isotp_send_buf), isotp_recv_buf, sizeof(isotp_recv_buf));
     xSemaphoreGive(isotp_mutex);
 }
 
 static void isotp_processing_task(void *arg)
 {
+    struct IsoTpLink *isotp_link_ptr = (struct IsoTpLink*)arg;
+    struct IsoTpLink isotp_link = *isotp_link_ptr;
     xSemaphoreTake(isotp_task_sem, portMAX_DELAY);
     ESP_ERROR_CHECK(twai_start());
     ESP_LOGI(EXAMPLE_TAG, "CAN/TWAI Driver started");
-    configure_isotp_link();
+    configure_isotp_links();
     ESP_LOGI(EXAMPLE_TAG, "ISO-TP Handler started");
-
     xSemaphoreGive(send_queue_start);
-
     while (1)
     {
-        if (isotp_link.send_status != ISOTP_SEND_STATUS_INPROGRESS && isotp_link.receive_status != ISOTP_RECEIVE_STATUS_INPROGRESS)
+        if (isotp_link.send_status != ISOTP_SEND_STATUS_INPROGRESS &&
+            isotp_link.receive_status != ISOTP_RECEIVE_STATUS_INPROGRESS)
         {
             // Link is idle, wait for new data before pumping loop.
             xSemaphoreTake(isotp_wait_for_data, portMAX_DELAY);
@@ -156,14 +179,14 @@ static void isotp_processing_task(void *arg)
         if (ISOTP_RET_OK == ret)
         {
             ESP_LOGD(EXAMPLE_TAG, "Received ISO-TP message with length: %04X", out_size);
-            for (int i = 0; i < out_size; i++)
+            for (int i = 0; i < out_size; i++) {
                 ESP_LOGD(EXAMPLE_TAG, "ISO-TP data %c", payload[i]);
+            }
             ble_send(payload, out_size);
             websocket_send(payload, out_size);
         }
         vTaskDelay(0); // Allow higher priority tasks to run, for example Rx/Tx
     }
-
     vTaskDelete(NULL);
 }
 
@@ -185,8 +208,28 @@ static void send_queue_task(void *arg)
         send_message_t msg;
         xQueueReceive(send_message_queue, &msg, portMAX_DELAY);
         xSemaphoreTake(isotp_mutex, (TickType_t)100);
-        ESP_LOGI(EXAMPLE_TAG, "send_queue_task: sending message with %d size (rx id: %08x / tx id: %08x)", msg.msg_length, receive_identifier, send_identifier);
-        isotp_send(&isotp_link, msg.buffer, msg.msg_length);
+        ESP_LOGI(EXAMPLE_TAG, "send_queue_task: sending message with %d size (rx id: %08x / tx id: %08x)", msg.msg_length, msg.rx_id, msg.tx_id);
+        switch (msg.rx_id) {
+            case 0x7E0: {
+                isotp_send(&ecu_isotp_link, msg.buffer, msg.msg_length);
+                break;
+            }
+            case 0x7E1: {
+                isotp_send(&tcu_isotp_link, msg.buffer, msg.msg_length);
+                break;
+            }
+            case 0x7E5: {
+                isotp_send(&ptcu_isotp_link, msg.buffer, msg.msg_length);
+                break;
+            }
+            case 0x607: {
+                isotp_send(&gateway_isotp_link, msg.buffer, msg.msg_length);
+                break;
+            }
+            default: {
+                break;
+            }
+        }
         xSemaphoreGive(isotp_mutex);
         xSemaphoreGive(isotp_wait_for_data);
         free(msg.buffer);
@@ -223,10 +266,7 @@ void command_received(uint8_t *cmd_str, size_t cmd_length)
         // Command 1 : Change Tx/Rx addresses
         uint16_t tx_address = (uint16_t)cmd_str[2] | ((uint16_t)cmd_str[1] << 8);
         uint16_t rx_address = (uint16_t)cmd_str[4] | ((uint16_t)cmd_str[3] << 8);
-        update_send_identifier(tx_address);
-        update_receive_identifier(rx_address);
-        ESP_LOGI(EXAMPLE_TAG, "Changing Tx ID to %04X, Rx ID to %04X", send_identifier, receive_identifier);
-        configure_isotp_link();
+        // TODO: change global tx_id + rx_id even though we are trying to move away form that?
     }
 }
 
@@ -247,10 +287,6 @@ void app_main(void)
     // Configure LED to Red
     ws2812_control_init(LED_GPIO_NUM);
     ws2812_write_leds(red_led_state);
-
-    // default to communicating with ECU
-    update_send_identifier(0x7E0);
-    update_receive_identifier(0x7E8);
 
     //Create semaphores and tasks
     websocket_send_queue = xQueueCreate(10, sizeof(send_message_t));
@@ -302,7 +338,10 @@ void app_main(void)
     xTaskCreatePinnedToCore(websocket_send_task, "websocket_sendTask", 4096, NULL, SOCKET_TASK_PRI, NULL, tskNO_AFFINITY);
     xTaskCreatePinnedToCore(twai_receive_task, "TWAI_rx", 4096, NULL, RX_TASK_PRIO, NULL, tskNO_AFFINITY);
     xTaskCreatePinnedToCore(twai_transmit_task, "TWAI_tx", 4096, NULL, TX_TASK_PRIO, NULL, tskNO_AFFINITY);
-    xTaskCreatePinnedToCore(isotp_processing_task, "ISOTP_process", 4096, NULL, ISOTP_TSK_PRIO, NULL, tskNO_AFFINITY);
+    xTaskCreatePinnedToCore(isotp_processing_task, "ecu_ISOTP_process", 4096, &ecu_isotp_link, ISOTP_TSK_PRIO, NULL, tskNO_AFFINITY);
+    xTaskCreatePinnedToCore(isotp_processing_task, "tcu_ISOTP_process", 4096, &tcu_isotp_link, ISOTP_TSK_PRIO, NULL, tskNO_AFFINITY);
+    xTaskCreatePinnedToCore(isotp_processing_task, "ptcu_ISOTP_process", 4096, &ptcu_isotp_link, ISOTP_TSK_PRIO, NULL, tskNO_AFFINITY);
+    xTaskCreatePinnedToCore(isotp_processing_task, "gateway_ISOTP_process", 4096, &gateway_isotp_link, ISOTP_TSK_PRIO, NULL, tskNO_AFFINITY);
     xTaskCreatePinnedToCore(send_queue_task, "MAIN_process_send_queue", 4096, NULL, MAIN_TSK_PRIO, NULL, tskNO_AFFINITY);
 
     xSemaphoreGive(isotp_task_sem); //Start Control task

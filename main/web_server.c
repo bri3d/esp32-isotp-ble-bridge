@@ -86,14 +86,14 @@ esp_err_t websocket_handler(httpd_req_t *req)
         }
         ESP_LOGI(WEB_SERVER_TAG, "adding websocket payload to send_message_queue");
         // format is: RX_ID TX_ID PDU
+        send_message_t msg;
         uint32_t rx_id = read_uint32_le(ws_pkt.payload);
         uint32_t tx_id = read_uint32_le(ws_pkt.payload + 4);
         uint8_t *pdu = ws_pkt.payload + 8;
         size_t pdu_len = ws_pkt.len - 8;
         // flip rx_id + tx_id because we want a response back from tx_id
-        update_receive_identifier(tx_id);
-        update_send_identifier(rx_id);
-        send_message_t msg;
+        msg.rx_id = tx_id;
+        msg.tx_id = rx_id;
         msg.buffer = calloc(1, pdu_len);
         memcpy(msg.buffer, pdu, pdu_len);
         msg.msg_length = pdu_len;
@@ -128,6 +128,8 @@ const httpd_uri_t websocket_uri = {
 
 void websocket_send(const void* src, size_t size) {
     send_message_t msg;
+    // TODO: msg.rx_id
+    // TODO: msg.tx_id
     msg.buffer = malloc(size);
     msg.msg_length = size;
     memcpy(msg.buffer, src, size);
@@ -146,8 +148,8 @@ void websocket_send_task(void *pvParameters)
             httpd_ws_frame_t ws_pkt;
             memset(&ws_pkt, 0, sizeof(httpd_ws_frame_t));
             ws_pkt.payload = malloc(event.msg_length + 8);
-            memcpy(ws_pkt.payload, &receive_identifier, sizeof(uint32_t));
-            memcpy(ws_pkt.payload + 4, &send_identifier, sizeof(uint32_t));
+            memcpy(ws_pkt.payload, &event.rx_id, sizeof(uint32_t));
+            memcpy(ws_pkt.payload + 4, &event.tx_id, sizeof(uint32_t));
             memcpy(ws_pkt.payload + 8, event.buffer, event.msg_length);
             ws_pkt.len = event.msg_length + 8;
             ws_pkt.type = HTTPD_WS_TYPE_BINARY;

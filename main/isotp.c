@@ -452,13 +452,14 @@ int isotp_receive(IsoTpLink *link, uint8_t *payload, const uint16_t payload_size
     return ISOTP_RET_OK;
 }
 
-void isotp_init_link(IsoTpLink *link, uint32_t sendid, uint8_t *sendbuf, uint16_t sendbufsize, uint8_t *recvbuf, uint16_t recvbufsize) {
+void isotp_init_link(IsoTpLink *link, uint32_t tx_id, uint32_t rx_id, uint8_t *sendbuf, uint16_t sendbufsize, uint8_t *recvbuf, uint16_t recvbufsize) {
     memset(link, 0, sizeof(*link));
     link->receive_status = ISOTP_RECEIVE_STATUS_IDLE;
     link->send_status = ISOTP_SEND_STATUS_IDLE;
-    link->send_arbitration_id = sendid;
+    link->send_arbitration_id = tx_id;
     link->send_buffer = sendbuf;
     link->send_buf_size = sendbufsize;
+    link->receive_arbitration_id = rx_id;
     link->receive_buffer = recvbuf;
     link->receive_buf_size = recvbufsize;
     

@@ -379,10 +379,11 @@ void send_task(void *pvParameters)
 void spp_cmd_task(void * arg)
 {
     send_message_t cmd_msg;
-
     for(;;){
         vTaskDelay(50 / portTICK_PERIOD_MS);
         if(xQueueReceive(cmd_cmd_queue, &cmd_msg, portMAX_DELAY)) {
+            // TODO: cmd_msg.tx_id
+            // TODO: cmd_msg.rx_id
             server_callbacks.command_received(cmd_msg.buffer, cmd_msg.msg_length);
             free(cmd_msg.buffer);
         }
@@ -453,6 +454,8 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
                 ESP_LOGI(GATTS_TABLE_TAG, "ESP_GATTS_WRITE_EVT : handle = %d\n", res);
                 if(res == SPP_IDX_SPP_COMMAND_VAL){
                     send_message_t cmd_buf;
+                    // TODO: cmd_buf.tx_id
+                    // TODO: cmd_buf.rx_id
                     cmd_buf.buffer = (uint8_t *) malloc(p_data->write.len);
                     cmd_buf.msg_length = p_data->write.len;
                     memcpy(cmd_buf.buffer, p_data->write.value, cmd_buf.msg_length);
@@ -629,6 +632,8 @@ void ble_server_setup(ble_server_callbacks callbacks)
 
 void ble_send(const void* src, size_t size) {
     send_message_t msg;
+    // TODO: msg.tx_id
+    // TODO: msg.rx_Id
     msg.buffer = malloc(size);
     msg.msg_length = size;
     memcpy(msg.buffer, src, size);
