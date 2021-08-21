@@ -80,6 +80,7 @@ uint32_t isotp_user_get_ms(void)
 
 void isotp_user_debug(const char *message, ...)
 {
+    // TODO: va_args?
 }
 
 /* --------------------------- Tasks and Functions -------------------------- */
@@ -90,11 +91,11 @@ static void twai_receive_task(void *arg)
     {
         twai_message_t rx_msg;
         twai_receive(&rx_msg, portMAX_DELAY); // If no message available, should block and yield.
+        ESP_LOGI(EXAMPLE_TAG, "Received Message with identifier %08X and length %08X", rx_msg.identifier, rx_msg.data_length_code);
         if (rx_msg.identifier == receive_identifier)
         {
-            ESP_LOGD(EXAMPLE_TAG, "Received Message with identifier %08X and length %08X", rx_msg.identifier, rx_msg.data_length_code);
             for (int i = 0; i < rx_msg.data_length_code; i++)
-                ESP_LOGD(EXAMPLE_TAG, "RX Data: %02X", rx_msg.data[i]);
+                ESP_LOGI(EXAMPLE_TAG, "RX Data: %02X", rx_msg.data[i]);
             xSemaphoreTake(isotp_mutex, (TickType_t)100);
             isotp_on_can_message(&isotp_link, rx_msg.data, rx_msg.data_length_code);
             xSemaphoreGive(isotp_mutex);
@@ -184,7 +185,7 @@ static void send_queue_task(void *arg)
         send_message_t msg;
         xQueueReceive(send_message_queue, &msg, portMAX_DELAY);
         xSemaphoreTake(isotp_mutex, (TickType_t)100);
-        ESP_LOGI(EXAMPLE_TAG, "send_queue_task: sending message with %d size (tx id: %08x / rx id: %08x)", msg.msg_length, send_identifier, receive_identifier);
+        ESP_LOGI(EXAMPLE_TAG, "send_queue_task: sending message with %d size (rx id: %08x / tx id: %08x)", msg.msg_length, receive_identifier, send_identifier);
         isotp_send(&isotp_link, msg.buffer, msg.msg_length);
         xSemaphoreGive(isotp_mutex);
         xSemaphoreGive(isotp_wait_for_data);
@@ -283,7 +284,8 @@ void app_main(void)
     ble_server_setup(callbacks);
 
     // Setup WiFi server
-    wifi_server_setup();
+    // wifi_ap_server_setup(); we host an SSID and clients connect to us
+    wifi_station_server_setup(); // we connect to an SSID and clients connect to a bound port
 
     // Setup web server
     web_server_setup();

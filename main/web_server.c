@@ -80,15 +80,25 @@ esp_err_t websocket_handler(httpd_req_t *req)
         for (size_t i = 0; i < ws_pkt.len; ++i) {
             ESP_LOGI(WEB_SERVER_TAG, "ws_pkt.payload[%04x] = %02x", i, ws_pkt.payload[i]);
         }
+        // skip messages that do not have at least 2 arbitration IDs (4 bytes), a service ID, and atleast 1 PDU byte
+        if (ws_pkt.len < 10) {
+          return ESP_OK;
+        }
         ESP_LOGI(WEB_SERVER_TAG, "adding websocket payload to send_message_queue");
         // format is: RX_ID TX_ID PDU
-        update_send_identifier(read_uint32_be(ws_pkt.payload));
-        update_receive_identifier(read_uint32_be(ws_pkt.payload + 4));
+        uint32_t rx_id = read_uint32_le(ws_pkt.payload);
+        uint32_t tx_id = read_uint32_le(ws_pkt.payload + 4);
+        uint8_t *pdu = ws_pkt.payload + 8;
+        size_t pdu_len = ws_pkt.len - 8;
+        // flip rx_id + tx_id because we want a response back from tx_id
+        update_receive_identifier(tx_id);
+        update_send_identifier(rx_id);
         send_message_t msg;
-        msg.buffer = calloc(1, ws_pkt.len - 8);
-        memcpy(msg.buffer, ws_pkt.payload + 8, ws_pkt.len - 8);
-        msg.msg_length = ws_pkt.len - 8;
+        msg.buffer = calloc(1, pdu_len);
+        memcpy(msg.buffer, pdu, pdu_len);
+        msg.msg_length = pdu_len;
         xQueueSend(send_message_queue, &msg, pdMS_TO_TICKS(50));
+        ESP_LOGI(WEB_SERVER_TAG, "added websocket payload to send_message_queue rx_id = %08x tx_id = %08x pdu_len = %d", rx_id, tx_id, pdu_len);
     }
     return ESP_OK;
 }
@@ -136,8 +146,8 @@ void websocket_send_task(void *pvParameters)
             httpd_ws_frame_t ws_pkt;
             memset(&ws_pkt, 0, sizeof(httpd_ws_frame_t));
             ws_pkt.payload = malloc(event.msg_length + 8);
-            memcpy(ws_pkt.payload, &send_identifier, sizeof(uint32_t));
-            memcpy(ws_pkt.payload + 4, &receive_identifier, sizeof(uint32_t));
+            memcpy(ws_pkt.payload, &receive_identifier, sizeof(uint32_t));
+            memcpy(ws_pkt.payload + 4, &send_identifier, sizeof(uint32_t));
             memcpy(ws_pkt.payload + 8, event.buffer, event.msg_length);
             ws_pkt.len = event.msg_length + 8;
             ws_pkt.type = HTTPD_WS_TYPE_BINARY;
