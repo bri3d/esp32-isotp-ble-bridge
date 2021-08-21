@@ -41,5 +41,5 @@ typedef struct
 } ble_server_callbacks;
 
 void ble_server_setup(ble_server_callbacks callbacks);
-void ble_send(const void* src, size_t size);
+void ble_send(uint32_t tx_id, uint32_t rx_id, const void* src, size_t size);
 void ble_set_status(const void* src, size_t size);

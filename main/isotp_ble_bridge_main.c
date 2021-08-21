@@ -33,7 +33,7 @@
 #define ISOTP_BUFSIZE 4096
 #define EXAMPLE_TAG "ISOTPtoBLE"
 
-#define ISOTP_MAX_RECEIVE_PAYLOAD 512
+#define ISOTP_MAX_RECEIVE_PAYLOAD 512 // TODO: aim for 0x1000
 
 // TWAI/CAN configuration
 
@@ -43,11 +43,15 @@ static const twai_filter_config_t f_config = TWAI_FILTER_CONFIG_ACCEPT_ALL();
 
 // Mutable globals for semaphores, queues, ISO-TP link
 
-static SemaphoreHandle_t isotp_task_sem;
-static SemaphoreHandle_t send_queue_start;
 static SemaphoreHandle_t done_sem;
+static SemaphoreHandle_t isotp_send_queue_sem;
+
+//static SemaphoreHandle_t isotp_task_sem; // used by isotp_processing_task
 static SemaphoreHandle_t isotp_mutex;
-static SemaphoreHandle_t isotp_wait_for_data;
+static SemaphoreHandle_t isotp_wait_for_ecu_data;
+static SemaphoreHandle_t isotp_wait_for_tcu_data;
+static SemaphoreHandle_t isotp_wait_for_ptcu_data;
+static SemaphoreHandle_t isotp_wait_for_gateway_data;
 
 static IsoTpLink ecu_isotp_link;
 static IsoTpLink tcu_isotp_link;
@@ -55,16 +59,23 @@ static IsoTpLink ptcu_isotp_link;
 static IsoTpLink gateway_isotp_link;
 
 /* Alloc ISO-TP send and receive buffer statically in RAM, required by library */
-static uint8_t isotp_recv_buf[ISOTP_BUFSIZE];
-static uint8_t isotp_send_buf[ISOTP_BUFSIZE];
+static uint8_t ecu_isotp_recv_buf[ISOTP_BUFSIZE];
+static uint8_t ecu_isotp_send_buf[ISOTP_BUFSIZE];
+static uint8_t tcu_isotp_recv_buf[ISOTP_BUFSIZE];
+static uint8_t tcu_isotp_send_buf[ISOTP_BUFSIZE];
+static uint8_t ptcu_isotp_recv_buf[ISOTP_BUFSIZE];
+static uint8_t ptcu_isotp_send_buf[ISOTP_BUFSIZE];
+static uint8_t gateway_isotp_recv_buf[ISOTP_BUFSIZE];
+static uint8_t gateway_isotp_send_buf[ISOTP_BUFSIZE];
 
 // LED colors
-
 static struct led_state red_led_state = {
-    .leds[0] = 0x004000};
+    .leds[0] = 0x004000
+};
 
 static struct led_state green_led_state = {
-    .leds[0] = 0x400000};
+    .leds[0] = 0x400000
+};
 
 /* ---------------------------- ISOTP Callbacks ---------------------------- */
 
@@ -81,11 +92,6 @@ uint32_t isotp_user_get_ms(void)
     return (esp_timer_get_time() / 1000ULL) & 0xFFFFFFFF;
 }
 
-void isotp_user_debug(const char *message, ...)
-{
-    // TODO: va_args?
-}
-
 /* --------------------------- Tasks and Functions -------------------------- */
 
 static void twai_receive_task(void *arg)
@@ -94,34 +100,45 @@ static void twai_receive_task(void *arg)
     {
         twai_message_t rx_msg;
         twai_receive(&rx_msg, portMAX_DELAY); // If no message available, should block and yield.
-        ESP_LOGI(EXAMPLE_TAG, "Received Message with identifier %08X and length %08X", rx_msg.identifier, rx_msg.data_length_code);
+        ESP_LOGI(EXAMPLE_TAG, "Received TWAI message with identifier %08X and length %08X", rx_msg.identifier, rx_msg.data_length_code);
         for (int i = 0; i < rx_msg.data_length_code; i++) {
             ESP_LOGI(EXAMPLE_TAG, "RX Data: %02X", rx_msg.data[i]);
         }
         xSemaphoreTake(isotp_mutex, (TickType_t)100);
+        ESP_LOGI(EXAMPLE_TAG, "Took isotp_mutex");
         switch (rx_msg.identifier) {
             case 0x7E8: { // ECU
+                ESP_LOGI(EXAMPLE_TAG, "isotp_on_can_message(ECU)");
                 isotp_on_can_message(&ecu_isotp_link, rx_msg.data, rx_msg.data_length_code);
+                xSemaphoreGive(isotp_mutex);
+                xSemaphoreGive(isotp_wait_for_ecu_data);
                 break;
             }
             case 0x7E9: { // TCU
+                ESP_LOGI(EXAMPLE_TAG, "isotp_on_can_message(TCU)");
                 isotp_on_can_message(&tcu_isotp_link, rx_msg.data, rx_msg.data_length_code);
+                xSemaphoreGive(isotp_mutex);
+                xSemaphoreGive(isotp_wait_for_tcu_data);
                 break;
             }
             case 0x7E5: { // PTCU
+                ESP_LOGI(EXAMPLE_TAG, "isotp_on_can_message(PTCU)");
                 isotp_on_can_message(&ptcu_isotp_link, rx_msg.data, rx_msg.data_length_code);
+                xSemaphoreGive(isotp_mutex);
+                xSemaphoreGive(isotp_wait_for_ptcu_data);
                 break;
             }
             case 0x587: { // gateway
+                ESP_LOGI(EXAMPLE_TAG, "isotp_on_can_message(gateway)");
                 isotp_on_can_message(&gateway_isotp_link, rx_msg.data, rx_msg.data_length_code);
+                xSemaphoreGive(isotp_mutex);
+                xSemaphoreGive(isotp_wait_for_gateway_data);
                 break;
             }
             default: {
                 break;
             }
         }
-        xSemaphoreGive(isotp_mutex);
-        xSemaphoreGive(isotp_wait_for_data);
     }
     vTaskDelete(NULL);
 }
@@ -132,9 +149,10 @@ static void twai_transmit_task(void *arg)
     {
         twai_message_t tx_msg;
         xQueueReceive(tx_task_queue, &tx_msg, portMAX_DELAY);
-        ESP_LOGD(EXAMPLE_TAG, "Sending Message with ID %08X", tx_msg.identifier);
-        for (int i = 0; i < tx_msg.data_length_code; i++)
+        ESP_LOGD(EXAMPLE_TAG, "Sending TWAI Message with ID %08X", tx_msg.identifier);
+        for (int i = 0; i < tx_msg.data_length_code; i++) {
             ESP_LOGD(EXAMPLE_TAG, "TX Data: %02X", tx_msg.data[i]);
+        }
         twai_transmit(&tx_msg, portMAX_DELAY);
     }
     vTaskDelete(NULL);
@@ -143,56 +161,71 @@ static void twai_transmit_task(void *arg)
 static void configure_isotp_links()
 {
     xSemaphoreTake(isotp_mutex, (TickType_t)100);
-    isotp_init_link(&ecu_isotp_link, 0x7E0, 0x7E8, isotp_send_buf, sizeof(isotp_send_buf), isotp_recv_buf, sizeof(isotp_recv_buf));
-    isotp_init_link(&tcu_isotp_link, 0x7E1, 0x7E9, isotp_send_buf, sizeof(isotp_send_buf), isotp_recv_buf, sizeof(isotp_recv_buf));
-    isotp_init_link(&ptcu_isotp_link, 0x7E5, 0x7ED, isotp_send_buf, sizeof(isotp_send_buf), isotp_recv_buf, sizeof(isotp_recv_buf));
-    isotp_init_link(&gateway_isotp_link, 0x607, 0x587, isotp_send_buf, sizeof(isotp_send_buf), isotp_recv_buf, sizeof(isotp_recv_buf));
+    isotp_init_link(&ecu_isotp_link, 0x7E0, 0x7E8, ecu_isotp_send_buf, sizeof(ecu_isotp_send_buf), ecu_isotp_recv_buf, sizeof(ecu_isotp_recv_buf));
+    isotp_init_link(&tcu_isotp_link, 0x7E1, 0x7E9, tcu_isotp_send_buf, sizeof(tcu_isotp_send_buf), tcu_isotp_recv_buf, sizeof(tcu_isotp_recv_buf));
+    isotp_init_link(&ptcu_isotp_link, 0x7E5, 0x7ED, ptcu_isotp_send_buf, sizeof(ptcu_isotp_send_buf), ptcu_isotp_recv_buf, sizeof(ptcu_isotp_recv_buf));
+    isotp_init_link(&gateway_isotp_link, 0x607, 0x587, gateway_isotp_send_buf, sizeof(gateway_isotp_send_buf), gateway_isotp_recv_buf, sizeof(gateway_isotp_recv_buf));
     xSemaphoreGive(isotp_mutex);
 }
 
 static void isotp_processing_task(void *arg)
 {
     struct IsoTpLink *isotp_link_ptr = (struct IsoTpLink*)arg;
-    struct IsoTpLink isotp_link = *isotp_link_ptr;
-    xSemaphoreTake(isotp_task_sem, portMAX_DELAY);
-    ESP_ERROR_CHECK(twai_start());
-    ESP_LOGI(EXAMPLE_TAG, "CAN/TWAI Driver started");
-    configure_isotp_links();
-    ESP_LOGI(EXAMPLE_TAG, "ISO-TP Handler started");
-    xSemaphoreGive(send_queue_start);
+//    xSemaphoreTake(isotp_task_sem, portMAX_DELAY)
     while (1)
     {
-        if (isotp_link.send_status != ISOTP_SEND_STATUS_INPROGRESS &&
-            isotp_link.receive_status != ISOTP_RECEIVE_STATUS_INPROGRESS)
+        if (isotp_link_ptr->send_status != ISOTP_SEND_STATUS_INPROGRESS &&
+            isotp_link_ptr->receive_status != ISOTP_RECEIVE_STATUS_INPROGRESS)
         {
             // Link is idle, wait for new data before pumping loop.
-            xSemaphoreTake(isotp_wait_for_data, portMAX_DELAY);
+            switch (isotp_link_ptr->send_arbitration_id) {
+                case 0x7E0: {
+                    xSemaphoreTake(isotp_wait_for_ecu_data, portMAX_DELAY);
+                    break;
+                }
+                case 0x7E1: {
+                    xSemaphoreTake(isotp_wait_for_tcu_data, portMAX_DELAY);
+                    break;
+                }
+                case 0x7E5: {
+                    xSemaphoreTake(isotp_wait_for_ptcu_data, portMAX_DELAY);
+                    break;
+                }
+                case 0x607: {
+                    xSemaphoreTake(isotp_wait_for_gateway_data, portMAX_DELAY);
+                    break;
+                }
+                default: {
+                    break;
+                }
+            }
+
         }
         xSemaphoreTake(isotp_mutex, (TickType_t)100);
-        isotp_poll(&isotp_link);
+        isotp_poll(isotp_link_ptr);
         xSemaphoreGive(isotp_mutex);
         uint16_t out_size;
         uint8_t payload[ISOTP_MAX_RECEIVE_PAYLOAD];
         xSemaphoreTake(isotp_mutex, (TickType_t)100);
-        int ret = isotp_receive(&isotp_link, payload, sizeof(payload), &out_size);
+        int ret = isotp_receive(isotp_link_ptr, payload, sizeof(payload), &out_size);
         xSemaphoreGive(isotp_mutex);
         if (ISOTP_RET_OK == ret)
         {
-            ESP_LOGD(EXAMPLE_TAG, "Received ISO-TP message with length: %04X", out_size);
+            ESP_LOGI(EXAMPLE_TAG, "Received ISO-TP message with length: %04X", out_size);
             for (int i = 0; i < out_size; i++) {
-                ESP_LOGD(EXAMPLE_TAG, "ISO-TP data %c", payload[i]);
+                ESP_LOGI(EXAMPLE_TAG, "ISO-TP data %c", payload[i]);
             }
-            ble_send(payload, out_size);
-            websocket_send(payload, out_size);
+            ble_send(isotp_link_ptr->receive_arbitration_id, isotp_link_ptr->send_arbitration_id, payload, out_size);
+            websocket_send(isotp_link_ptr->receive_arbitration_id, isotp_link_ptr->send_arbitration_id, payload, out_size);
         }
         vTaskDelay(0); // Allow higher priority tasks to run, for example Rx/Tx
     }
     vTaskDelete(NULL);
 }
 
-static void send_queue_task(void *arg)
+static void isotp_send_queue_task(void *arg)
 {
-    xSemaphoreTake(send_queue_start, portMAX_DELAY);
+    xSemaphoreTake(isotp_send_queue_sem, portMAX_DELAY);
     while (1)
     {
         twai_status_info_t status_info;
@@ -206,32 +239,38 @@ static void send_queue_task(void *arg)
             twai_start();
         }
         send_message_t msg;
-        xQueueReceive(send_message_queue, &msg, portMAX_DELAY);
+        xQueueReceive(isotp_send_message_queue, &msg, portMAX_DELAY);
         xSemaphoreTake(isotp_mutex, (TickType_t)100);
-        ESP_LOGI(EXAMPLE_TAG, "send_queue_task: sending message with %d size (rx id: %08x / tx id: %08x)", msg.msg_length, msg.rx_id, msg.tx_id);
+        ESP_LOGI(EXAMPLE_TAG, "isotp_send_queue_task: sending message with %d size (rx id: %08x / tx id: %08x)", msg.msg_length, msg.rx_id, msg.tx_id);
         switch (msg.rx_id) {
             case 0x7E0: {
                 isotp_send(&ecu_isotp_link, msg.buffer, msg.msg_length);
+                xSemaphoreGive(isotp_mutex);
+                xSemaphoreGive(isotp_wait_for_ecu_data);
                 break;
             }
             case 0x7E1: {
                 isotp_send(&tcu_isotp_link, msg.buffer, msg.msg_length);
+                xSemaphoreGive(isotp_mutex);
+                xSemaphoreGive(isotp_wait_for_tcu_data);
                 break;
             }
             case 0x7E5: {
                 isotp_send(&ptcu_isotp_link, msg.buffer, msg.msg_length);
+                xSemaphoreGive(isotp_mutex);
+                xSemaphoreGive(isotp_wait_for_ptcu_data);
                 break;
             }
             case 0x607: {
                 isotp_send(&gateway_isotp_link, msg.buffer, msg.msg_length);
+                xSemaphoreGive(isotp_mutex);
+                xSemaphoreGive(isotp_wait_for_gateway_data);
                 break;
             }
             default: {
                 break;
             }
         }
-        xSemaphoreGive(isotp_mutex);
-        xSemaphoreGive(isotp_wait_for_data);
         free(msg.buffer);
     }
     vTaskDelete(NULL);
@@ -243,10 +282,14 @@ void received_from_ble(const void *src, size_t size)
 {
     ESP_LOGI(EXAMPLE_TAG, "Received a message from BLE stack with length %08X", size);
     send_message_t msg;
-    msg.buffer = malloc(size);
-    memcpy(msg.buffer, src, size);
-    msg.msg_length = size;
-    xQueueSend(send_message_queue, &msg, pdMS_TO_TICKS(50));
+    msg.rx_id = read_uint32_le(src);
+    msg.tx_id = read_uint32_le(src + 4);
+    msg.msg_length = size - 8;;
+    msg.buffer = malloc(msg.msg_length);
+    uint8_t *pdu = src + 8;
+    memcpy(msg.buffer, pdu, msg.msg_length);
+    ESP_LOGI(EXAMPLE_TAG, "Received a message from BLE stack with length %08X rx_id %08x tx_id %08x", size, msg.rx_id, msg.tx_id);
+    xQueueSend(isotp_send_message_queue, &msg, pdMS_TO_TICKS(50));
 }
 
 void notifications_disabled()
@@ -291,11 +334,14 @@ void app_main(void)
     //Create semaphores and tasks
     websocket_send_queue = xQueueCreate(10, sizeof(send_message_t));
     tx_task_queue = xQueueCreate(10, sizeof(twai_message_t));
-    send_message_queue = xQueueCreate(10, sizeof(send_message_t));
-    isotp_task_sem = xSemaphoreCreateBinary();
+    isotp_send_message_queue = xQueueCreate(10, sizeof(send_message_t));
+//    isotp_task_sem = xSemaphoreCreateBinary();
     done_sem = xSemaphoreCreateBinary();
-    send_queue_start = xSemaphoreCreateBinary();
-    isotp_wait_for_data = xSemaphoreCreateBinary();
+    isotp_send_queue_sem = xSemaphoreCreateBinary();
+    isotp_wait_for_ecu_data = xSemaphoreCreateBinary();
+    isotp_wait_for_tcu_data = xSemaphoreCreateBinary();
+    isotp_wait_for_ptcu_data = xSemaphoreCreateBinary();
+    isotp_wait_for_gateway_data = xSemaphoreCreateBinary();
     isotp_mutex = xSemaphoreCreateMutex();
 
     // Need to pull down GPIO 21 to unset the "S" (Silent Mode) pin on CAN Xceiver.
@@ -327,6 +373,15 @@ void app_main(void)
     // Setup web server
     web_server_setup();
 
+    // CAN/TWAI driver
+    ESP_ERROR_CHECK(twai_start());
+    ESP_LOGI(EXAMPLE_TAG, "CAN/TWAI Driver started");
+
+    // ISO-TP handler
+    configure_isotp_links();
+    ESP_LOGI(EXAMPLE_TAG, "ISO-TP Handler started");
+    xSemaphoreGive(isotp_send_queue_sem);
+
     // Tasks :
     // "websocket_sendTask" polls the websocket_send_queue queue. This queue is populated when a ISO-TP PDU is received.
     // "TWAI_rx" polls the receive queue (blocking) and once a message exists, forwards it into the ISO-TP library.
@@ -342,18 +397,18 @@ void app_main(void)
     xTaskCreatePinnedToCore(isotp_processing_task, "tcu_ISOTP_process", 4096, &tcu_isotp_link, ISOTP_TSK_PRIO, NULL, tskNO_AFFINITY);
     xTaskCreatePinnedToCore(isotp_processing_task, "ptcu_ISOTP_process", 4096, &ptcu_isotp_link, ISOTP_TSK_PRIO, NULL, tskNO_AFFINITY);
     xTaskCreatePinnedToCore(isotp_processing_task, "gateway_ISOTP_process", 4096, &gateway_isotp_link, ISOTP_TSK_PRIO, NULL, tskNO_AFFINITY);
-    xTaskCreatePinnedToCore(send_queue_task, "MAIN_process_send_queue", 4096, NULL, MAIN_TSK_PRIO, NULL, tskNO_AFFINITY);
+    xTaskCreatePinnedToCore(isotp_send_queue_task, "ISOTP_process_send_queue", 4096, NULL, MAIN_TSK_PRIO, NULL, tskNO_AFFINITY);
 
-    xSemaphoreGive(isotp_task_sem); //Start Control task
+//    xSemaphoreGive(isotp_task_sem); //Start Control task
     xSemaphoreTake(done_sem, portMAX_DELAY);
 
     ESP_ERROR_CHECK(twai_driver_uninstall());
     ESP_LOGI(EXAMPLE_TAG, "Driver uninstalled");
 
-    vSemaphoreDelete(isotp_task_sem);
-    vSemaphoreDelete(send_queue_start);
+//    vSemaphoreDelete(isotp_task_sem);
+    vSemaphoreDelete(isotp_send_queue_sem);
     vSemaphoreDelete(done_sem);
     vSemaphoreDelete(isotp_mutex);
     vQueueDelete(tx_task_queue);
-    vQueueDelete(send_message_queue);
+    vQueueDelete(isotp_send_message_queue);
 }

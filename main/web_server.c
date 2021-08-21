@@ -84,7 +84,7 @@ esp_err_t websocket_handler(httpd_req_t *req)
         if (ws_pkt.len < 10) {
           return ESP_OK;
         }
-        ESP_LOGI(WEB_SERVER_TAG, "adding websocket payload to send_message_queue");
+        ESP_LOGI(WEB_SERVER_TAG, "adding websocket payload to isotp_send_message_queue");
         // format is: RX_ID TX_ID PDU
         send_message_t msg;
         uint32_t rx_id = read_uint32_le(ws_pkt.payload);
@@ -97,8 +97,8 @@ esp_err_t websocket_handler(httpd_req_t *req)
         msg.buffer = calloc(1, pdu_len);
         memcpy(msg.buffer, pdu, pdu_len);
         msg.msg_length = pdu_len;
-        xQueueSend(send_message_queue, &msg, pdMS_TO_TICKS(50));
-        ESP_LOGI(WEB_SERVER_TAG, "added websocket payload to send_message_queue rx_id = %08x tx_id = %08x pdu_len = %d", rx_id, tx_id, pdu_len);
+        xQueueSend(isotp_send_message_queue, &msg, pdMS_TO_TICKS(50));
+        ESP_LOGI(WEB_SERVER_TAG, "added websocket payload to isotp_send_message_queue rx_id = %08x tx_id = %08x pdu_len = %d", rx_id, tx_id, pdu_len);
     }
     return ESP_OK;
 }
@@ -126,10 +126,11 @@ const httpd_uri_t websocket_uri = {
     .is_websocket = true
 };
 
-void websocket_send(const void* src, size_t size) {
+void websocket_send(uint32_t tx_id, uint32_t rx_id, const void* src, size_t size) {
+    ESP_LOGE(WEB_SERVER_TAG, "websocket_send called with message length %08x rx_id = %08x tx_id = %08x", size, rx_id, tx_id);
     send_message_t msg;
-    // TODO: msg.rx_id
-    // TODO: msg.tx_id
+    msg.tx_id = tx_id;
+    msg.rx_id = rx_id;
     msg.buffer = malloc(size);
     msg.msg_length = size;
     memcpy(msg.buffer, src, size);
@@ -144,7 +145,6 @@ void websocket_send_task(void *pvParameters)
             ESP_LOGI(WEB_SERVER_TAG, "Got WebSocket message to send with length %08X", event.msg_length);
             // build outgoing websocket frame
             // format is: RX_ID TX_ID PDU
-            // TODO: this is really prone to "race conditions" if tx/rx ID were changed in between message send + receive
             httpd_ws_frame_t ws_pkt;
             memset(&ws_pkt, 0, sizeof(httpd_ws_frame_t));
             ws_pkt.payload = malloc(event.msg_length + 8);

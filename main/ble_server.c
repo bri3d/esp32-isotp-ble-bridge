@@ -323,21 +323,24 @@ void send_task(void *pvParameters)
                     free(event.buffer);
                     break;
                 }
-                temp = (uint8_t *)malloc(sizeof(uint8_t)*event.msg_length);
+                size_t event_length = event.msg_length + 8;
+                temp = (uint8_t *)malloc(sizeof(uint8_t) * event_length);
                 if(temp == NULL){
                     ESP_LOGE(GATTS_TABLE_TAG, "%s malloc.1 failed\n", __func__);
                     free(event.buffer);
                     break;
                 }
-                memset(temp,0x0,event.msg_length);
-                memcpy(temp, event.buffer, event.msg_length);
-                if(event.msg_length <= (spp_mtu_size - 3)){
-                    esp_ble_gatts_send_indicate(spp_gatts_if, spp_conn_id, spp_handle_table[SPP_IDX_SPP_DATA_NTY_VAL],event.msg_length, temp, false);
-                }else if(event.msg_length > (spp_mtu_size - 3)){
-                    if((event.msg_length%(spp_mtu_size - 7)) == 0){
-                        total_num = event.msg_length/(spp_mtu_size - 7);
+                memset(temp,0x0, event_length);
+                memcpy(temp, &event.tx_id, sizeof(uint32_t));
+                memcpy(temp + 4, &event.rx_id, sizeof(uint32_t));
+                memcpy(temp + 8, event.buffer, event.msg_length);
+                if(event_length <= (spp_mtu_size - 3)){
+                    esp_ble_gatts_send_indicate(spp_gatts_if, spp_conn_id, spp_handle_table[SPP_IDX_SPP_DATA_NTY_VAL],event_length, temp, false);
+                } else if(event_length > (spp_mtu_size - 3)){
+                    if((event_length%(spp_mtu_size - 7)) == 0){
+                        total_num = event_length/(spp_mtu_size - 7);
                     }else{
-                        total_num = event.msg_length/(spp_mtu_size - 7) + 1;
+                        total_num = event_length/(spp_mtu_size - 7) + 1;
                     }
                     current_num = 1;
                     ntf_value_p = (uint8_t *)malloc((spp_mtu_size-3)*sizeof(uint8_t));
@@ -360,8 +363,8 @@ void send_task(void *pvParameters)
                             ntf_value_p[1] = '#';
                             ntf_value_p[2] = total_num;
                             ntf_value_p[3] = current_num;
-                            memcpy(ntf_value_p + 4,temp + (current_num - 1)*(spp_mtu_size-7),(event.msg_length - (current_num - 1)*(spp_mtu_size - 7)));
-                            esp_ble_gatts_send_indicate(spp_gatts_if, spp_conn_id, spp_handle_table[SPP_IDX_SPP_DATA_NTY_VAL],(event.msg_length - (current_num - 1)*(spp_mtu_size - 7) + 4), ntf_value_p, false);
+                            memcpy(ntf_value_p + 4,temp + (current_num - 1)*(spp_mtu_size-7),(event_length - (current_num - 1)*(spp_mtu_size - 7)));
+                            esp_ble_gatts_send_indicate(spp_gatts_if, spp_conn_id, spp_handle_table[SPP_IDX_SPP_DATA_NTY_VAL],(event_length - (current_num - 1)*(spp_mtu_size - 7) + 4), ntf_value_p, false);
                         }
                         vTaskDelay(20 / portTICK_PERIOD_MS);
                         current_num++;
@@ -630,10 +633,11 @@ void ble_server_setup(ble_server_callbacks callbacks)
     return;
 }
 
-void ble_send(const void* src, size_t size) {
+void ble_send(uint32_t tx_id, uint32_t rx_id, const void* src, size_t size) {
+    ESP_LOGE(GATTS_TABLE_TAG, "ble_send called with message length %08x rx_id = %08x tx_id = %08x", size, rx_id, tx_id);
     send_message_t msg;
-    // TODO: msg.tx_id
-    // TODO: msg.rx_Id
+    msg.tx_id = tx_id;
+    msg.rx_id = rx_id;
     msg.buffer = malloc(size);
     msg.msg_length = size;
     memcpy(msg.buffer, src, size);
