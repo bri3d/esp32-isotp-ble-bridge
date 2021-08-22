@@ -127,7 +127,7 @@ const httpd_uri_t websocket_uri = {
 };
 
 void websocket_send(uint32_t tx_id, uint32_t rx_id, const void* src, size_t size) {
-    ESP_LOGE(WEB_SERVER_TAG, "websocket_send called with message length %08x rx_id = %08x tx_id = %08x", size, rx_id, tx_id);
+    ESP_LOGI(WEB_SERVER_TAG, "websocket_send called with message length %08x rx_id = %08x tx_id = %08x", size, rx_id, tx_id);
     send_message_t msg;
     msg.tx_id = tx_id;
     msg.rx_id = rx_id;
