@@ -40,7 +40,11 @@ async def run(debug=False):
                 print("characteristic: ", characteristic)
         await client.start_notify(NOTIFY_CHARACTERISTIC_UUID, notification_handler)
         while(True):
-            await client.write_gatt_char(WRITE_CHARACTERISTIC_UUID, bytes([0x22, 0xF1, 0x90]))
+            await client.write_gatt_char(WRITE_CHARACTERISTIC_UUID, bytes([
+                0xe0, 0x07, 0x00, 0x00, # ECU RX_ID
+                0xe8, 0x07, 0x00, 0x00, # ECU TX_ID
+                0x22, 0xF1, 0x90 # UDS $22 F190 - read VIN
+            ]))
             await asyncio.sleep(0.1)
         await asyncio.sleep(10)
         await client.stop_notify(NOTIFY_CHARACTERISTIC_UUID)
