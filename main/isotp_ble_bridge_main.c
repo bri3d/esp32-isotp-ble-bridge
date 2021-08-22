@@ -35,7 +35,18 @@
 
 // TWAI/CAN configuration
 
-static const twai_general_config_t g_config = TWAI_GENERAL_CONFIG_DEFAULT(TX_GPIO_NUM, RX_GPIO_NUM, TWAI_MODE_NORMAL);
+static const twai_general_config_t g_config = {
+    .mode = TWAI_MODE_NORMAL,
+    .tx_io = TX_GPIO_NUM,
+    .rx_io = RX_GPIO_NUM,
+    .clkout_io = TWAI_IO_UNUSED,
+    .bus_off_io = TWAI_IO_UNUSED,
+    .tx_queue_len = 1024,
+    .rx_queue_len = 1024,
+    .alerts_enabled = TWAI_ALERT_NONE,
+    .clkout_divider = 0,
+    .intr_flags = ESP_INTR_FLAG_LEVEL1
+};
 static const twai_timing_config_t t_config = TWAI_TIMING_CONFIG_500KBITS();
 static const twai_filter_config_t f_config = TWAI_FILTER_CONFIG_ACCEPT_ALL();
 
@@ -93,6 +104,10 @@ uint32_t isotp_user_get_ms(void)
 
 void isotp_user_debug(const char *message, ...)
 {
+    va_list args;
+    va_start(args, message);
+    esp_log_writev(ESP_LOG_DEBUG, EXAMPLE_TAG, message, args);
+    va_end(args);
 }
 
 /* --------------------------- Tasks and Functions -------------------------- */
@@ -165,6 +180,7 @@ static void twai_transmit_task(void *arg)
 static void configure_isotp_links()
 {
     xSemaphoreTake(isotp_mutex, (TickType_t)100);
+    // RX_ID + TX_ID are flipped because this device acts as a "tester" listening for responses from ECUs. the ECU's TX is our RX
     isotp_init_link(&ecu_isotp_link, 0x7E0, 0x7E8, ecu_isotp_send_buf, sizeof(ecu_isotp_send_buf), ecu_isotp_recv_buf, sizeof(ecu_isotp_recv_buf));
     isotp_init_link(&tcu_isotp_link, 0x7E1, 0x7E9, tcu_isotp_send_buf, sizeof(tcu_isotp_send_buf), tcu_isotp_recv_buf, sizeof(tcu_isotp_recv_buf));
     isotp_init_link(&ptcu_isotp_link, 0x7E5, 0x7ED, ptcu_isotp_send_buf, sizeof(ptcu_isotp_send_buf), ptcu_isotp_recv_buf, sizeof(ptcu_isotp_recv_buf));
@@ -213,7 +229,7 @@ static void isotp_processing_task(void *arg)
         uint16_t out_size;
         int ret = isotp_receive(isotp_link_ptr, isotp_payload, sizeof(isotp_payload), &out_size);
         xSemaphoreGive(isotp_mutex);
-        // if it is time to send data
+        // if it is time to send fully received + parsed ISO-TP data over BLE and/or websocket
         if (ISOTP_RET_OK == ret) {
             ESP_LOGI(EXAMPLE_TAG, "Received ISO-TP message with length: %04X", out_size);
             for (int i = 0; i < out_size; i++) {
