@@ -288,7 +288,7 @@ void received_from_ble(const void *src, size_t size)
     send_message_t msg;
     msg.rx_id = read_uint32_le(src);
     msg.tx_id = read_uint32_le(src + 4);
-    msg.msg_length = size - 8;;
+    msg.msg_length = size - 8;
     msg.buffer = malloc(msg.msg_length);
     uint8_t *pdu = src + 8;
     memcpy(msg.buffer, pdu, msg.msg_length);
