@@ -173,6 +173,7 @@ static void twai_transmit_task(void *arg)
             ESP_LOGD(EXAMPLE_TAG, "TX Data: %02X", tx_msg.data[i]);
         }
         twai_transmit(&tx_msg, portMAX_DELAY);
+        ESP_LOGD(EXAMPLE_TAG, "Sent TWAI Message with ID %08X", tx_msg.identifier);
     }
     vTaskDelete(NULL);
 }
