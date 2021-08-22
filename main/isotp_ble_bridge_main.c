@@ -33,8 +33,6 @@
 #define ISOTP_BUFSIZE 4096
 #define EXAMPLE_TAG "ISOTPtoBLE"
 
-#define ISOTP_MAX_RECEIVE_PAYLOAD 512 // TODO: aim for 0x1000
-
 // TWAI/CAN configuration
 
 static const twai_general_config_t g_config = TWAI_GENERAL_CONFIG_DEFAULT(TX_GPIO_NUM, RX_GPIO_NUM, TWAI_MODE_NORMAL);
@@ -58,7 +56,7 @@ static IsoTpLink tcu_isotp_link;
 static IsoTpLink ptcu_isotp_link;
 static IsoTpLink gateway_isotp_link;
 
-/* Alloc ISO-TP send and receive buffer statically in RAM, required by library */
+/* Alloc ISO-TP send and receive buffers per link statically in RAM, required by library */
 static uint8_t ecu_isotp_recv_buf[ISOTP_BUFSIZE];
 static uint8_t ecu_isotp_send_buf[ISOTP_BUFSIZE];
 static uint8_t tcu_isotp_recv_buf[ISOTP_BUFSIZE];
@@ -67,6 +65,7 @@ static uint8_t ptcu_isotp_recv_buf[ISOTP_BUFSIZE];
 static uint8_t ptcu_isotp_send_buf[ISOTP_BUFSIZE];
 static uint8_t gateway_isotp_recv_buf[ISOTP_BUFSIZE];
 static uint8_t gateway_isotp_send_buf[ISOTP_BUFSIZE];
+static uint8_t isotp_payload[ISOTP_BUFSIZE];
 
 // LED colors
 static struct led_state red_led_state = {
@@ -108,8 +107,9 @@ static void twai_receive_task(void *arg)
         for (int i = 0; i < rx_msg.data_length_code; i++) {
             ESP_LOGD(EXAMPLE_TAG, "RX Data: %02X", rx_msg.data[i]);
         }
+        ESP_LOGD(EXAMPLE_TAG, "Taking isotp_mutex");
         xSemaphoreTake(isotp_mutex, (TickType_t)100);
-        ESP_LOGI(EXAMPLE_TAG, "Took isotp_mutex");
+        ESP_LOGD(EXAMPLE_TAG, "Took isotp_mutex");
         switch (rx_msg.identifier) {
             case 0x7E8: { // ECU
                 ESP_LOGI(EXAMPLE_TAG, "isotp_on_can_message(ECU)");
@@ -203,24 +203,24 @@ static void isotp_processing_task(void *arg)
                     break;
                 }
             }
-
         }
+        // poll
         xSemaphoreTake(isotp_mutex, (TickType_t)100);
         isotp_poll(isotp_link_ptr);
         xSemaphoreGive(isotp_mutex);
-        uint16_t out_size;
-        uint8_t payload[ISOTP_MAX_RECEIVE_PAYLOAD];
+        // receive
         xSemaphoreTake(isotp_mutex, (TickType_t)100);
+        uint16_t out_size;
         int ret = isotp_receive(isotp_link_ptr, payload, sizeof(payload), &out_size);
         xSemaphoreGive(isotp_mutex);
-        if (ISOTP_RET_OK == ret)
-        {
+        // if it is time to send data
+        if (ISOTP_RET_OK == ret) {
             ESP_LOGI(EXAMPLE_TAG, "Received ISO-TP message with length: %04X", out_size);
             for (int i = 0; i < out_size; i++) {
-                ESP_LOGD(EXAMPLE_TAG, "ISO-TP data %02x", payload[i]);
+                ESP_LOGD(EXAMPLE_TAG, "ISO-TP data %02x", isotp_payload[i]);
             }
-            ble_send(isotp_link_ptr->receive_arbitration_id, isotp_link_ptr->send_arbitration_id, payload, out_size);
-            websocket_send(isotp_link_ptr->receive_arbitration_id, isotp_link_ptr->send_arbitration_id, payload, out_size);
+            ble_send(isotp_link_ptr->receive_arbitration_id, isotp_link_ptr->send_arbitration_id, isotp_payload, out_size);
+            websocket_send(isotp_link_ptr->receive_arbitration_id, isotp_link_ptr->send_arbitration_id, isotp_payload, out_size);
         }
         vTaskDelay(0); // Allow higher priority tasks to run, for example Rx/Tx
     }
@@ -290,7 +290,7 @@ void received_from_ble(const void *src, size_t size)
     msg.tx_id = read_uint32_le(src + 4);
     msg.msg_length = size - 8;
     msg.buffer = malloc(msg.msg_length);
-    uint8_t *pdu = src + 8;
+    const uint8_t *pdu = src + 8;
     memcpy(msg.buffer, pdu, msg.msg_length);
     ESP_LOGI(EXAMPLE_TAG, "Received a message from BLE stack with length %08X rx_id %08x tx_id %08x", size, msg.rx_id, msg.tx_id);
     xQueueSend(isotp_send_message_queue, &msg, pdMS_TO_TICKS(50));
