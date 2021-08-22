@@ -211,7 +211,7 @@ static void isotp_processing_task(void *arg)
         // receive
         xSemaphoreTake(isotp_mutex, (TickType_t)100);
         uint16_t out_size;
-        int ret = isotp_receive(isotp_link_ptr, payload, sizeof(payload), &out_size);
+        int ret = isotp_receive(isotp_link_ptr, isotp_payload, sizeof(isotp_payload), &out_size);
         xSemaphoreGive(isotp_mutex);
         // if it is time to send data
         if (ISOTP_RET_OK == ret) {
