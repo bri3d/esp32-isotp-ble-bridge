@@ -430,7 +430,7 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
     esp_ble_gatts_cb_param_t *p_data = (esp_ble_gatts_cb_param_t *) param;
     uint8_t res = 0xff;
 
-    ESP_LOGI(GATTS_TABLE_TAG, "event = %x\n",event);
+    ESP_LOGD(GATTS_TABLE_TAG, "event = %x\n",event);
     switch (event) {
         case ESP_GATTS_REG_EVT: {
             ESP_LOGI(GATTS_TABLE_TAG, "%s %d\n", __func__, __LINE__);
@@ -453,7 +453,7 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
         case ESP_GATTS_WRITE_EVT: {
             res = find_char_and_desr_index(p_data->write.handle);
             if(p_data->write.is_prep == false){
-                ESP_LOGI(GATTS_TABLE_TAG, "ESP_GATTS_WRITE_EVT : handle = %d\n", res);
+                ESP_LOGD(GATTS_TABLE_TAG, "ESP_GATTS_WRITE_EVT : handle = %d", res);
                 if(res == SPP_IDX_SPP_COMMAND_VAL){
                     send_message_t cmd_buf;
                     // TODO: cmd_buf.tx_id?
@@ -475,13 +475,13 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
                     //TODO:
                 }
             }else if((p_data->write.is_prep == true)&&(res == SPP_IDX_SPP_DATA_RECV_VAL)){
-                ESP_LOGI(GATTS_TABLE_TAG, "ESP_GATTS_PREP_WRITE_EVT : handle = %d\n", res);
+                ESP_LOGD(GATTS_TABLE_TAG, "ESP_GATTS_PREP_WRITE_EVT : handle = %d", res);
                 store_wr_buffer(p_data);
             }
             break;
         }
         case ESP_GATTS_EXEC_WRITE_EVT: {
-            ESP_LOGI(GATTS_TABLE_TAG, "ESP_GATTS_EXEC_WRITE_EVT\n");
+            ESP_LOGD(GATTS_TABLE_TAG, "ESP_GATTS_EXEC_WRITE_EVT");
             if(p_data->exec_write.exec_write_flag){
                 send_buffered_message();
                 free_write_buffer();
@@ -558,7 +558,7 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
 
 static void gatts_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble_gatts_cb_param_t *param)
 {
-    ESP_LOGI(GATTS_TABLE_TAG, "EVT %d, gatts if %d\n", event, gatts_if);
+    ESP_LOGD(GATTS_TABLE_TAG, "EVT %d, gatts if %d\n", event, gatts_if);
 
     /* If event is register event, store the gatts_if for each profile */
     if (event == ESP_GATTS_REG_EVT) {
@@ -633,7 +633,7 @@ void ble_server_setup(ble_server_callbacks callbacks)
 }
 
 void ble_send(uint32_t tx_id, uint32_t rx_id, const void* src, size_t size) {
-    ESP_LOGE(GATTS_TABLE_TAG, "ble_send called with message length %08x rx_id = %08x tx_id = %08x", size, rx_id, tx_id);
+    ESP_LOGI(GATTS_TABLE_TAG, "ble_send called with message length %08x rx_id = %08x tx_id = %08x", size, rx_id, tx_id);
     send_message_t msg;
     msg.tx_id = tx_id;
     msg.rx_id = rx_id;
