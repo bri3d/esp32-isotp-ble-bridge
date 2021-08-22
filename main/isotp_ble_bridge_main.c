@@ -106,7 +106,7 @@ static void twai_receive_task(void *arg)
         twai_receive(&rx_msg, portMAX_DELAY); // If no message available, should block and yield.
         ESP_LOGI(EXAMPLE_TAG, "Received TWAI message with identifier %08X and length %08X", rx_msg.identifier, rx_msg.data_length_code);
         for (int i = 0; i < rx_msg.data_length_code; i++) {
-            ESP_LOGI(EXAMPLE_TAG, "RX Data: %02X", rx_msg.data[i]);
+            ESP_LOGD(EXAMPLE_TAG, "RX Data: %02X", rx_msg.data[i]);
         }
         xSemaphoreTake(isotp_mutex, (TickType_t)100);
         ESP_LOGI(EXAMPLE_TAG, "Took isotp_mutex");
@@ -217,7 +217,7 @@ static void isotp_processing_task(void *arg)
         {
             ESP_LOGI(EXAMPLE_TAG, "Received ISO-TP message with length: %04X", out_size);
             for (int i = 0; i < out_size; i++) {
-                ESP_LOGI(EXAMPLE_TAG, "ISO-TP data %c", payload[i]);
+                ESP_LOGD(EXAMPLE_TAG, "ISO-TP data %02x", payload[i]);
             }
             ble_send(isotp_link_ptr->receive_arbitration_id, isotp_link_ptr->send_arbitration_id, payload, out_size);
             websocket_send(isotp_link_ptr->receive_arbitration_id, isotp_link_ptr->send_arbitration_id, payload, out_size);

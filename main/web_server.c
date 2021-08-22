@@ -78,7 +78,7 @@ esp_err_t websocket_handler(httpd_req_t *req)
     ESP_LOGI(WEB_SERVER_TAG, "Packet type: %d", ws_pkt.type);
     if (ws_pkt.type == HTTPD_WS_TYPE_BINARY) {
         for (size_t i = 0; i < ws_pkt.len; ++i) {
-            ESP_LOGI(WEB_SERVER_TAG, "ws_pkt.payload[%04x] = %02x", i, ws_pkt.payload[i]);
+            ESP_LOGD(WEB_SERVER_TAG, "ws_pkt.payload[%04x] = %02x", i, ws_pkt.payload[i]);
         }
         // skip messages that do not have at least 2 arbitration IDs (4 bytes), a service ID, and atleast 1 PDU byte
         if (ws_pkt.len < 10) {
