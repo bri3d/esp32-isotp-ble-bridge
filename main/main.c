@@ -45,6 +45,7 @@ static void configure_isotp_links()
     // acquire lock
     xSemaphoreTake(isotp_mutex, (TickType_t)100);
     // RX_ID + TX_ID are flipped because this device acts as a "tester" listening for responses from ECUs. the ECU's TX is our RX
+    // TODO: make these configurable via j2534 filters
     IsoTpLinkContainer *ecu_isotp_link_container = &isotp_link_containers[0];
     IsoTpLinkContainer *tcu_isotp_link_container = &isotp_link_containers[1];
     IsoTpLinkContainer *ptcu_isotp_link_container = &isotp_link_containers[2];
