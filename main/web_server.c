@@ -148,6 +148,7 @@ void websocket_send_task(void *pvParameters)
             httpd_ws_frame_t ws_pkt;
             memset(&ws_pkt, 0, sizeof(httpd_ws_frame_t));
             ws_pkt.payload = malloc(event.msg_length + 8);
+            // TODO: is this correct endian wise? most likely not
             memcpy(ws_pkt.payload, &event.rx_id, sizeof(uint32_t));
             memcpy(ws_pkt.payload + 4, &event.tx_id, sizeof(uint32_t));
             memcpy(ws_pkt.payload + 8, event.buffer, event.msg_length);

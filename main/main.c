@@ -50,6 +50,7 @@ static void configure_isotp_links()
     IsoTpLinkContainer *tcu_isotp_link_container = &isotp_link_containers[1];
     IsoTpLinkContainer *ptcu_isotp_link_container = &isotp_link_containers[2];
     IsoTpLinkContainer *gateway_isotp_link_container = &isotp_link_containers[3];
+    IsoTpLinkContainer *awd_isotp_link_container = &isotp_link_containers[4];
     // ECU
     ecu_isotp_link_container->recv_buf = calloc(1, ISOTP_BUFSIZE);
     ecu_isotp_link_container->send_buf = calloc(1, ISOTP_BUFSIZE);
@@ -101,6 +102,19 @@ static void configure_isotp_links()
         0x607, 0x587,
         gateway_isotp_link_container->send_buf, ISOTP_BUFSIZE,
         gateway_isotp_link_container->recv_buf, ISOTP_BUFSIZE
+    );
+    // AWD
+    awd_isotp_link_container->recv_buf = calloc(1, ISOTP_BUFSIZE);
+    awd_isotp_link_container->send_buf = calloc(1, ISOTP_BUFSIZE);
+    awd_isotp_link_container->payload_buf = calloc(1, ISOTP_BUFSIZE);
+    assert(awd_isotp_link_container->recv_buf != NULL);
+    assert(awd_isotp_link_container->send_buf != NULL);
+    assert(awd_isotp_link_container->payload_buf != NULL);
+    isotp_init_link(
+        &awd_isotp_link_container->link,
+        0x749, 0x729,
+        awd_isotp_link_container->send_buf, ISOTP_BUFSIZE,
+        awd_isotp_link_container->recv_buf, ISOTP_BUFSIZE
     );
     // free lock
     xSemaphoreGive(isotp_mutex);
@@ -256,11 +270,12 @@ void app_main(void)
     //xTaskCreatePinnedToCore(websocket_send_task, "websocket_sendTask", 4096, NULL, SOCKET_TASK_PRIO, NULL, tskNO_AFFINITY);
     xTaskCreatePinnedToCore(twai_receive_task, "TWAI_rx", 4096, NULL, RX_TASK_PRIO, NULL, tskNO_AFFINITY);
     xTaskCreatePinnedToCore(twai_transmit_task, "TWAI_tx", 4096, NULL, TX_TASK_PRIO, NULL, tskNO_AFFINITY);
+    xTaskCreatePinnedToCore(isotp_send_queue_task, "ISOTP_process_send_queue", 4096, NULL, MAIN_TSK_PRIO, NULL, tskNO_AFFINITY);
     xTaskCreatePinnedToCore(isotp_processing_task, "ecu_ISOTP_process", 4096, &isotp_link_containers[0], ISOTP_TSK_PRIO, NULL, tskNO_AFFINITY);
     xTaskCreatePinnedToCore(isotp_processing_task, "tcu_ISOTP_process", 4096, &isotp_link_containers[1], ISOTP_TSK_PRIO, NULL, tskNO_AFFINITY);
     xTaskCreatePinnedToCore(isotp_processing_task, "ptcu_ISOTP_process", 4096, &isotp_link_containers[2], ISOTP_TSK_PRIO, NULL, tskNO_AFFINITY);
     xTaskCreatePinnedToCore(isotp_processing_task, "gateway_ISOTP_process", 4096, &isotp_link_containers[3], ISOTP_TSK_PRIO, NULL, tskNO_AFFINITY);
-    xTaskCreatePinnedToCore(isotp_send_queue_task, "ISOTP_process_send_queue", 4096, NULL, MAIN_TSK_PRIO, NULL, tskNO_AFFINITY);
+    xTaskCreatePinnedToCore(isotp_processing_task, "awd_ISOTP_process", 4096, &isotp_link_containers[4], ISOTP_TSK_PRIO, NULL, tskNO_AFFINITY);
     ESP_LOGI(MAIN_TAG, "Tasks started");
     // lock done_sem
     xSemaphoreTake(done_sem, portMAX_DELAY);

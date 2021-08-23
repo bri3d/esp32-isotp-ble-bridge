@@ -1,7 +1,7 @@
 #ifndef __ISOTP_LINK_CONTAINERS_H__
 #define __ISOTP_LINK_CONTAINERS_H__
 
-#define NUM_ISOTP_LINK_CONTAINERS 4
+#define NUM_ISOTP_LINK_CONTAINERS 5
 
 typedef struct IsoTpLinkContainer {
     IsoTpLink link;
