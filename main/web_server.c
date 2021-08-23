@@ -87,8 +87,8 @@ esp_err_t websocket_handler(httpd_req_t *req)
         ESP_LOGI(WEB_SERVER_TAG, "adding websocket payload to isotp_send_message_queue");
         // format is: RX_ID TX_ID PDU
         send_message_t msg;
-        uint32_t rx_id = read_uint32_le(ws_pkt.payload);
-        uint32_t tx_id = read_uint32_le(ws_pkt.payload + 4);
+        uint32_t rx_id = read_uint32_be(ws_pkt.payload);
+        uint32_t tx_id = read_uint32_be(ws_pkt.payload + 4);
         uint8_t *pdu = ws_pkt.payload + 8;
         size_t pdu_len = ws_pkt.len - 8;
         // flip rx_id + tx_id because we want a response back from tx_id
