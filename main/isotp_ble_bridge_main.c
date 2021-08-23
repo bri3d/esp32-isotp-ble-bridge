@@ -11,8 +11,8 @@
 #include "soc/dport_reg.h"
 #include "isotp.h"
 #include "ble_server.h"
-#include "wifi_server.h"
-#include "web_server.h"
+//#include "wifi_server.h"
+//#include "web_server.h"
 #include "ws2812_control.h"
 #include "messages.h"
 #include "queues.h"
@@ -77,6 +77,7 @@ static uint8_t ptcu_isotp_send_buf[ISOTP_BUFSIZE];
 static uint8_t gateway_isotp_recv_buf[ISOTP_BUFSIZE];
 static uint8_t gateway_isotp_send_buf[ISOTP_BUFSIZE];
 static uint8_t isotp_payload[ISOTP_BUFSIZE];
+static uint8_t command_buf[ISOTP_BUFSIZE + 8];
 
 // LED colors
 static struct led_state red_led_state = {
@@ -127,28 +128,28 @@ static void twai_receive_task(void *arg)
         ESP_LOGD(EXAMPLE_TAG, "Took isotp_mutex");
         switch (rx_msg.identifier) {
             case 0x7E8: { // ECU
-                ESP_LOGI(EXAMPLE_TAG, "isotp_on_can_message(ECU)");
+                ESP_LOGD(EXAMPLE_TAG, "isotp_on_can_message(ECU)");
                 isotp_on_can_message(&ecu_isotp_link, rx_msg.data, rx_msg.data_length_code);
                 xSemaphoreGive(isotp_mutex);
                 xSemaphoreGive(isotp_wait_for_ecu_data);
                 break;
             }
             case 0x7E9: { // TCU
-                ESP_LOGI(EXAMPLE_TAG, "isotp_on_can_message(TCU)");
+                ESP_LOGD(EXAMPLE_TAG, "isotp_on_can_message(TCU)");
                 isotp_on_can_message(&tcu_isotp_link, rx_msg.data, rx_msg.data_length_code);
                 xSemaphoreGive(isotp_mutex);
                 xSemaphoreGive(isotp_wait_for_tcu_data);
                 break;
             }
             case 0x7E5: { // PTCU
-                ESP_LOGI(EXAMPLE_TAG, "isotp_on_can_message(PTCU)");
+                ESP_LOGD(EXAMPLE_TAG, "isotp_on_can_message(PTCU)");
                 isotp_on_can_message(&ptcu_isotp_link, rx_msg.data, rx_msg.data_length_code);
                 xSemaphoreGive(isotp_mutex);
                 xSemaphoreGive(isotp_wait_for_ptcu_data);
                 break;
             }
             case 0x587: { // gateway
-                ESP_LOGI(EXAMPLE_TAG, "isotp_on_can_message(gateway)");
+                ESP_LOGD(EXAMPLE_TAG, "isotp_on_can_message(gateway)");
                 isotp_on_can_message(&gateway_isotp_link, rx_msg.data, rx_msg.data_length_code);
                 xSemaphoreGive(isotp_mutex);
                 xSemaphoreGive(isotp_wait_for_gateway_data);
@@ -237,7 +238,7 @@ static void isotp_processing_task(void *arg)
                 ESP_LOGD(EXAMPLE_TAG, "ISO-TP data %02x", isotp_payload[i]);
             }
             ble_send(isotp_link_ptr->receive_arbitration_id, isotp_link_ptr->send_arbitration_id, isotp_payload, out_size);
-            websocket_send(isotp_link_ptr->receive_arbitration_id, isotp_link_ptr->send_arbitration_id, isotp_payload, out_size);
+            // websocket_send(isotp_link_ptr->receive_arbitration_id, isotp_link_ptr->send_arbitration_id, isotp_payload, out_size);
         }
         vTaskDelay(0); // Allow higher priority tasks to run, for example Rx/Tx
     }
@@ -303,8 +304,8 @@ void received_from_ble(const void *src, size_t size)
 {
     ESP_LOGI(EXAMPLE_TAG, "Received a message from BLE stack with length %08X", size);
     send_message_t msg;
-    msg.rx_id = read_uint32_le(src);
-    msg.tx_id = read_uint32_le(src + 4);
+    msg.rx_id = read_uint32_be(src);
+    msg.tx_id = read_uint32_be(src + 4);
     msg.msg_length = size - 8;
     msg.buffer = malloc(msg.msg_length);
     const uint8_t *pdu = src + 8;
@@ -323,14 +324,33 @@ void notifications_enabled()
     ws2812_write_leds(green_led_state);
 }
 
-void command_received(uint8_t *cmd_str, size_t cmd_length)
+void ble_command_received(uint8_t *input, size_t length)
 {
-    if (cmd_str[0] == 0x1)
-    {
-        // Command 1 : Change Tx/Rx addresses
-        uint16_t tx_address = (uint16_t)cmd_str[2] | ((uint16_t)cmd_str[1] << 8);
-        uint16_t rx_address = (uint16_t)cmd_str[4] | ((uint16_t)cmd_str[3] << 8);
-        // TODO: change global tx_id + rx_id even though we are trying to move away form that?
+    uint8_t command_id = input[0];
+    switch (command_id) {
+        case 0x01: { // Command 1 : Change Tx/Rx addresses
+            uint16_t tx_address = read_uint16_be(input + 1);
+            uint16_t rx_address = read_uint16_be(input + 3);
+            // TODO: change global tx_id + rx_id even though we are trying to move away form that?
+            break;
+        }
+        case 0x02: { // Command 2 : upload chunk for ISO-TP payload
+            uint16_t offset = read_uint16_be(input + 1);
+            uint16_t length = read_uint16_be(input + 3);
+            uint8_t *bytes = input + 5;
+            ESP_LOGI(EXAMPLE_TAG, "command_received[0x02]: offset = %04x length = %04x", offset, length);
+            memcpy(command_buf + offset, bytes, length);
+            break;
+        }
+        case 0x03: { // Command 3 : flush ISO-TP payload chunks
+            uint16_t length = read_uint16_be(input + 1);
+            ESP_LOGI(EXAMPLE_TAG, "command_received[0x03]: length = %04x", length);
+            received_from_ble(command_buf, length);
+            break;
+        }
+        default: {
+            break;
+        }
     }
 }
 
@@ -382,6 +402,7 @@ void app_main(void)
     // Setup BLE server
     ble_server_callbacks callbacks = {
         .data_received = received_from_ble,
+        .command_received = ble_command_received,
         .notifications_subscribed = notifications_enabled,
         .notifications_unsubscribed = notifications_disabled
     };
@@ -389,10 +410,10 @@ void app_main(void)
 
     // Setup WiFi server
     // wifi_ap_server_setup(); we host an SSID and clients connect to us
-    wifi_station_server_setup(); // we connect to an SSID and clients connect to a bound port
+    //wifi_station_server_setup(); // we connect to an SSID and clients connect to a bound port
 
     // Setup web server
-    web_server_setup();
+    //web_server_setup();
 
     // CAN/TWAI driver
     ESP_ERROR_CHECK(twai_start());
@@ -411,7 +432,7 @@ void app_main(void)
     // ISOTP_process also polls the ISOTP library's non-blocking receive method, which will produce a message if one is ready.
     // "MAIN_process_send_queue" processes queued messages from the BLE stack. These messages are dynamically allocated when they are queued and freed in this task.
 
-    xTaskCreatePinnedToCore(websocket_send_task, "websocket_sendTask", 4096, NULL, SOCKET_TASK_PRI, NULL, tskNO_AFFINITY);
+    //xTaskCreatePinnedToCore(websocket_send_task, "websocket_sendTask", 4096, NULL, SOCKET_TASK_PRI, NULL, tskNO_AFFINITY);
     xTaskCreatePinnedToCore(twai_receive_task, "TWAI_rx", 4096, NULL, RX_TASK_PRIO, NULL, tskNO_AFFINITY);
     xTaskCreatePinnedToCore(twai_transmit_task, "TWAI_tx", 4096, NULL, TX_TASK_PRIO, NULL, tskNO_AFFINITY);
     xTaskCreatePinnedToCore(isotp_processing_task, "ecu_ISOTP_process", 4096, &ecu_isotp_link, ISOTP_TSK_PRIO, NULL, tskNO_AFFINITY);
