@@ -50,6 +50,9 @@ static const uint16_t spp_service_uuid = 0xABF0; // '0000abf0-0000-1000-8000-008
 #define ESP_GATT_UUID_SPP_COMMAND_RECEIVE   0xABF3 // '0000abf3-0000-1000-8000-00805f9b34fb'
 #define ESP_GATT_UUID_SPP_COMMAND_NOTIFY    0xABF4 // '0000abf4-0000-1000-8000-00805f9b34fb'
 
+#define BLE_SPP_CMD_TASK_DELAY_MS 5
+#define BLE_SEND_TASK_DELAY_MS 5
+
 static const uint8_t spp_adv_data[23] = {
     /* Flags */
     0x02,0x01,0x06,
@@ -366,7 +369,7 @@ void send_task(void *pvParameters)
                             memcpy(ntf_value_p + 4,temp + (current_num - 1)*(spp_mtu_size-7),(event_length - (current_num - 1)*(spp_mtu_size - 7)));
                             esp_ble_gatts_send_indicate(spp_gatts_if, spp_conn_id, spp_handle_table[SPP_IDX_SPP_DATA_NTY_VAL],(event_length - (current_num - 1)*(spp_mtu_size - 7) + 4), ntf_value_p, false);
                         }
-                        vTaskDelay(20 / portTICK_PERIOD_MS);
+                        vTaskDelay(BLE_SEND_TASK_DELAY_MS / portTICK_PERIOD_MS);
                         current_num++;
                     }
                     free(ntf_value_p);
@@ -383,7 +386,7 @@ void spp_cmd_task(void * arg)
 {
     send_message_t cmd_msg;
     for(;;){
-        vTaskDelay(50 / portTICK_PERIOD_MS);
+        vTaskDelay(BLE_SPP_CMD_TASK_DELAY_MS / portTICK_PERIOD_MS);
         if(xQueueReceive(cmd_cmd_queue, &cmd_msg, portMAX_DELAY)) {
             // TODO: we got rid of the need to globally set TX_ID / RX_ID
             server_callbacks.command_received(cmd_msg.buffer, cmd_msg.msg_length);
@@ -635,8 +638,8 @@ void ble_server_setup(ble_server_callbacks callbacks)
 void ble_send(uint32_t tx_id, uint32_t rx_id, const void* src, size_t size) {
     ESP_LOGI(GATTS_TABLE_TAG, "ble_send called with message length %08x rx_id = %08x tx_id = %08x", size, rx_id, tx_id);
     send_message_t msg;
-    msg.tx_id = tx_id;
-    msg.rx_id = rx_id;
+    msg.tx_id = __builtin_bswap32(tx_id); // swap to big endian
+    msg.rx_id = __builtin_bswap32(rx_id); // swap to big endian
     msg.buffer = malloc(size);
     msg.msg_length = size;
     memcpy(msg.buffer, src, size);
