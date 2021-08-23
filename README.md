@@ -2,9 +2,13 @@
 
 The goal of this project is to build a native Macchina A0 firmware which can bridge BLE to ISOTP.
 
-This project is built using the ESP32 native toolchain ESP-IDF (based on FreeRTOS) and can be compiled using `idf.py build`. It can be flashed after building using `idf.py flash` and serial debugging logs can be viewed with `idf.py monitor`.
+This project is built using the ESP32 native toolchain ESP-IDF (based on FreeRTOS) and can be compiled using `idf.py build` (typically after `. $IDF_PATH/export.sh`). It can be flashed after building using `idf.py flash` and serial debugging logs can be viewed with `idf.py monitor`.
 
 Currently, the project works, with a simple example client in the `client` directory. 
+
+# Logs
+
+Comment out `CONFIG_LOG_DEFAULT_LEVEL_INFO=y` and set `CONFIG_LOG_DEFAULT_LEVEL_DEBUG=y` in `sdkconfig` then recompile to turn on debug level logs.
 
 # A few notes about Macchina A0
 

@@ -196,7 +196,7 @@ typedef struct {
 typedef enum {
     ISOTP_PCI_TYPE_SINGLE             = 0x0,
     ISOTP_PCI_TYPE_FIRST_FRAME        = 0x1,
-    TSOTP_PCI_TYPE_CONSECUTIVE_FRAME  = 0x2,
+    ISOTP_PCI_TYPE_CONSECUTIVE_FRAME  = 0x2,
     ISOTP_PCI_TYPE_FLOW_CONTROL_FRAME = 0x3
 } IsoTpProtocolControlInformation;
 
@@ -220,6 +220,8 @@ typedef enum {
 #define ISOTP_PROTOCOL_RESULT_WFT_OVRN     -7
 #define ISOTP_PROTOCOL_RESULT_BUFFER_OVFLW -8
 #define ISOTP_PROTOCOL_RESULT_ERROR        -9
+
+#define ISOTP_BUFSIZE 4096
 
 #endif
 

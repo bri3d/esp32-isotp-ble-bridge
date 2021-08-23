@@ -34,7 +34,10 @@ void ws2812_control_init(gpio_num_t led_gpio)
   ESP_ERROR_CHECK(rmt_driver_install(config.channel, 0, 0));
 }
 
-void ws2812_write_leds(struct led_state new_state) {
+void ws2812_write_leds(uint32_t led_state) {
+  struct led_state new_state = {
+    .leds[0] = led_state
+  };
   setup_rmt_data_buffer(new_state);
   ESP_ERROR_CHECK(rmt_write_items(LED_RMT_TX_CHANNEL, led_data_buffer, LED_BUFFER_ITEMS, false));
   ESP_ERROR_CHECK(rmt_wait_tx_done(LED_RMT_TX_CHANNEL, portMAX_DELAY));

@@ -11,7 +11,6 @@
 #define SPP_DATA_MAX_LEN           (512)
 #define SPP_CMD_MAX_LEN            (20)
 #define SPP_STATUS_MAX_LEN         (20)
-#define SPP_DATA_BUFF_MAX_LEN      (2*1024)
 ///Attributes State Machine
 enum{
     SPP_IDX_SVC,
@@ -41,5 +40,5 @@ typedef struct
 } ble_server_callbacks;
 
 void ble_server_setup(ble_server_callbacks callbacks);
-void ble_send(const void* src, size_t size);
+void ble_send(uint32_t tx_id, uint32_t rx_id, const void* src, size_t size);
 void ble_set_status(const void* src, size_t size);
