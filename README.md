@@ -6,6 +6,10 @@ This project is built using the ESP32 native toolchain ESP-IDF (based on FreeRTO
 
 Currently, the project works, with a simple example client in the `client` directory. 
 
+# Logs
+
+Comment out `CONFIG_LOG_DEFAULT_LEVEL_INFO=y` and set `CONFIG_LOG_DEFAULT_LEVEL_DEBUG=y` in `sdkconfig` then recompile to turn on debug level logs.
+
 # A few notes about Macchina A0
 
 Clever, dead simple board - a CAN transceiver, voltage regulators, and an ESP32-WROVER module with ESP32 revision 3 core. Tons of resources to use, including 8MB of SPI SRAM, 16MB of Flash.
