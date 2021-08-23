@@ -20,6 +20,10 @@ extern "C" {
  * using this library.
  */
 typedef struct IsoTpLink {
+    /* separation time */
+    uint8_t st_min;
+    /* block size */
+    uint8_t default_block_size;
     /* sender paramters */
     uint32_t                    send_arbitration_id; /* used to reply consecutive frame */
     /* message buffer */

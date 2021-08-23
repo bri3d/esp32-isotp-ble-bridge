@@ -244,10 +244,13 @@ int isotp_send_with_id(IsoTpLink *link, uint32_t id, const uint8_t payload[], ui
         return ISOTP_RET_ERROR;
     }
 
+    if (link->send_arbitration_id == 0) {
+        isotp_user_debug("isotp_send_with_id: send_arbitration_id is 0!\n");
+        return ISOTP_RET_ERROR;
+    }
+
     if (size > link->send_buf_size) {
         isotp_user_debug("isotp_send_with_id: Message size too large. Increase ISO_TP_MAX_MESSAGE_SIZE to set a larger buffer\n\n");
-        char message[128];
-        sprintf(&message[0], "Attempted to send %d bytes; max size is %d!\n", size, link->send_buf_size);
         return ISOTP_RET_OVERFLOW;
     }
 
@@ -346,8 +349,8 @@ void isotp_on_can_message(IsoTpLink *link, uint8_t *data, uint8_t len) {
                 /* change status */
                 link->receive_status = ISOTP_RECEIVE_STATUS_INPROGRESS;
                 /* send fc frame */
-                link->receive_bs_count = ISO_TP_DEFAULT_BLOCK_SIZE;
-                isotp_send_flow_control(link, PCI_FLOW_STATUS_CONTINUE, link->receive_bs_count, ISO_TP_DEFAULT_ST_MIN);
+                link->receive_bs_count = link->default_block_size;
+                isotp_send_flow_control(link, PCI_FLOW_STATUS_CONTINUE, link->receive_bs_count, link->st_min);
                 /* refresh timer cs */
                 link->receive_timer_cr = isotp_user_get_ms() + ISO_TP_DEFAULT_RESPONSE_TIMEOUT;
             }
@@ -386,8 +389,8 @@ void isotp_on_can_message(IsoTpLink *link, uint8_t *data, uint8_t len) {
                 } else {
                     /* send fc when bs reaches limit */
                     if (0 == --link->receive_bs_count) {
-                        link->receive_bs_count = ISO_TP_DEFAULT_BLOCK_SIZE;
-                        isotp_send_flow_control(link, PCI_FLOW_STATUS_CONTINUE, link->receive_bs_count, ISO_TP_DEFAULT_ST_MIN);
+                        link->receive_bs_count = link->default_block_size;
+                        isotp_send_flow_control(link, PCI_FLOW_STATUS_CONTINUE, link->receive_bs_count, link->st_min);
                     }
                 }
             }
@@ -453,6 +456,7 @@ int isotp_receive(IsoTpLink *link, uint8_t *payload, const uint16_t payload_size
 
     copylen = link->receive_size;
     if (copylen > payload_size) {
+        isotp_user_debug("isotp_receive: warning! copylen > payload_size\n");
         copylen = payload_size;
     }
 
@@ -464,17 +468,19 @@ int isotp_receive(IsoTpLink *link, uint8_t *payload, const uint16_t payload_size
     return ISOTP_RET_OK;
 }
 
-void isotp_init_link(IsoTpLink *link, uint32_t tx_id, uint32_t rx_id, uint8_t *sendbuf, uint16_t sendbufsize, uint8_t *recvbuf, uint16_t recvbufsize) {
-    isotp_user_debug("isotp_init_link: tx_id = %08x rx_id = %08x\n", tx_id, rx_id);
+void isotp_init_link(IsoTpLink *link, uint32_t send_arbitration_id, uint32_t receive_arbitration_id, uint8_t *sendbuf, uint16_t sendbufsize, uint8_t *recvbuf, uint16_t recvbufsize) {
+    isotp_user_debug("isotp_init_link: send_arbitration_id = %08x receive_arbitration_id = %08x\n", send_arbitration_id, receive_arbitration_id);
     memset(link, 0, sizeof(*link));
     link->receive_status = ISOTP_RECEIVE_STATUS_IDLE;
     link->send_status = ISOTP_SEND_STATUS_IDLE;
-    link->send_arbitration_id = tx_id;
+    link->send_arbitration_id = send_arbitration_id;
     link->send_buffer = sendbuf;
     link->send_buf_size = sendbufsize;
-    link->receive_arbitration_id = rx_id;
+    link->receive_arbitration_id = receive_arbitration_id;
     link->receive_buffer = recvbuf;
     link->receive_buf_size = recvbufsize;
+    link->st_min = 0; // TODO: support changing this
+    link->default_block_size = 0x20; // TODO: support changing this
     return;
 }
 

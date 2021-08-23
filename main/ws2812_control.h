@@ -12,12 +12,15 @@ struct led_state {
     uint32_t leds[NUM_LEDS];
 };
 
+#define RED_LED_STATE 0x004000
+#define GREEN_LED_STATE 0x400000
+
 // Setup the hardware peripheral. Only call this once.
 void ws2812_control_init(gpio_num_t led_gpio);
 
 // Update the LEDs to the new state. Call as needed.
 // This function will block the current task until the RMT peripheral is finished sending 
 // the entire sequence.
-void ws2812_write_leds(struct led_state new_state);
+void ws2812_write_leds(uint32_t led_state);
 
 #endif

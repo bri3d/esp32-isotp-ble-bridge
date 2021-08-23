@@ -221,5 +221,7 @@ typedef enum {
 #define ISOTP_PROTOCOL_RESULT_BUFFER_OVFLW -8
 #define ISOTP_PROTOCOL_RESULT_ERROR        -9
 
+#define ISOTP_BUFSIZE 4096
+
 #endif
 
