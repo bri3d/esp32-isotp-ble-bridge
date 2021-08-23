@@ -246,8 +246,6 @@ int isotp_send_with_id(IsoTpLink *link, uint32_t id, const uint8_t payload[], ui
 
     if (size > link->send_buf_size) {
         isotp_user_debug("isotp_send_with_id: Message size too large. Increase ISO_TP_MAX_MESSAGE_SIZE to set a larger buffer\n\n");
-        char message[128];
-        sprintf(&message[0], "Attempted to send %d bytes; max size is %d!\n", size, link->send_buf_size);
         return ISOTP_RET_OVERFLOW;
     }
 
@@ -346,8 +344,8 @@ void isotp_on_can_message(IsoTpLink *link, uint8_t *data, uint8_t len) {
                 /* change status */
                 link->receive_status = ISOTP_RECEIVE_STATUS_INPROGRESS;
                 /* send fc frame */
-                link->receive_bs_count = ISO_TP_DEFAULT_BLOCK_SIZE;
-                isotp_send_flow_control(link, PCI_FLOW_STATUS_CONTINUE, link->receive_bs_count, ISO_TP_DEFAULT_ST_MIN);
+                link->receive_bs_count = link->default_block_size;
+                isotp_send_flow_control(link, PCI_FLOW_STATUS_CONTINUE, link->receive_bs_count, link->st_min);
                 /* refresh timer cs */
                 link->receive_timer_cr = isotp_user_get_ms() + ISO_TP_DEFAULT_RESPONSE_TIMEOUT;
             }
@@ -386,8 +384,8 @@ void isotp_on_can_message(IsoTpLink *link, uint8_t *data, uint8_t len) {
                 } else {
                     /* send fc when bs reaches limit */
                     if (0 == --link->receive_bs_count) {
-                        link->receive_bs_count = ISO_TP_DEFAULT_BLOCK_SIZE;
-                        isotp_send_flow_control(link, PCI_FLOW_STATUS_CONTINUE, link->receive_bs_count, ISO_TP_DEFAULT_ST_MIN);
+                        link->receive_bs_count = link->default_block_size;
+                        isotp_send_flow_control(link, PCI_FLOW_STATUS_CONTINUE, link->receive_bs_count, link->st_min);
                     }
                 }
             }
@@ -475,6 +473,8 @@ void isotp_init_link(IsoTpLink *link, uint32_t tx_id, uint32_t rx_id, uint8_t *s
     link->receive_arbitration_id = rx_id;
     link->receive_buffer = recvbuf;
     link->receive_buf_size = recvbufsize;
+    link->st_min = 0; // TODO: support changing this
+    link->default_block_size = 0x20; // TODO: support changing this
     return;
 }
 
