@@ -108,8 +108,7 @@ static void configure_isotp_links()
 static void isotp_processing_task(void *arg)
 {
     IsoTpLinkContainer *isotp_link_container = (IsoTpLinkContainer*)arg;
-    IsoTpLink link = isotp_link_container->link;
-    IsoTpLink *link_ptr = &link;
+    IsoTpLink *link_ptr = &isotp_link_container->link;;
     uint8_t *payload_buf = isotp_link_container->payload_buf;
     while (1)
     {
@@ -126,13 +125,13 @@ static void isotp_processing_task(void *arg)
         // receive
         xSemaphoreTake(isotp_mutex, (TickType_t)100);
         uint16_t out_size;
-        int ret = isotp_receive(link_ptr, payload_buf, sizeof(payload_buf), &out_size);
+        int ret = isotp_receive(link_ptr, payload_buf, ISOTP_BUFSIZE, &out_size);
         xSemaphoreGive(isotp_mutex);
         // if it is time to send fully received + parsed ISO-TP data over BLE and/or websocket
         if (ISOTP_RET_OK == ret) {
             ESP_LOGI(MAIN_TAG, "Received ISO-TP message with length: %04X", out_size);
             for (int i = 0; i < out_size; i++) {
-                ESP_LOGD(MAIN_TAG, "ISO-TP data %02x", payload_buf[i]);
+                ESP_LOGD(MAIN_TAG, "payload_buf[%d] = %02x", i, payload_buf[i]);
             }
             ble_send(link_ptr->receive_arbitration_id, link_ptr->send_arbitration_id, payload_buf, out_size);
             // websocket_send(link_ptr->receive_arbitration_id, link_ptr->send_arbitration_id, payload_buf, out_size);
@@ -163,7 +162,8 @@ static void isotp_send_queue_task(void *arg)
         ESP_LOGI(MAIN_TAG, "isotp_send_queue_task: sending message with %d size (rx id: %08x / tx id: %08x)", msg.msg_length, msg.rx_id, msg.tx_id);
         for (int i = 0; i < NUM_ISOTP_LINK_CONTAINERS; ++i) {
             IsoTpLinkContainer *isotp_link_container = &isotp_link_containers[i];
-            if (msg.rx_id == isotp_link_container->link.send_arbitration_id) {
+            // flipped?
+            if (msg.tx_id == isotp_link_container->link.receive_arbitration_id) {
                 ESP_LOGI(MAIN_TAG, "isotp_send_queue_task: link match");
                 isotp_send(&isotp_link_container->link, msg.buffer, msg.msg_length);
                 xSemaphoreGive(isotp_mutex);

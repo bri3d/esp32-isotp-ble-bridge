@@ -1,3 +1,6 @@
+#ifndef __ISOTP_LINK_CONTAINERS_H__
+#define __ISOTP_LINK_CONTAINERS_H__
+
 #define NUM_ISOTP_LINK_CONTAINERS 4
 
 typedef struct IsoTpLinkContainer {
@@ -8,4 +11,6 @@ typedef struct IsoTpLinkContainer {
     uint8_t *payload_buf;
 } IsoTpLinkContainer;
 
-static IsoTpLinkContainer isotp_link_containers[NUM_ISOTP_LINK_CONTAINERS];
+IsoTpLinkContainer isotp_link_containers[NUM_ISOTP_LINK_CONTAINERS];
+
+#endif
