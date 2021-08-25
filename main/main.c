@@ -52,9 +52,9 @@ void app_main(void)
     ws2812_control_init(LED_GPIO_NUM);
     ws2812_write_leds(RED_LED_STATE);
     //Create semaphores and tasks
-    websocket_send_queue = xQueueCreate(10, sizeof(send_message_t));
-    tx_task_queue = xQueueCreate(10, sizeof(twai_message_t));
-    isotp_send_message_queue = xQueueCreate(10, sizeof(send_message_t));
+    tx_task_queue = xQueueCreate(1024, sizeof(twai_message_t));
+    websocket_send_queue = xQueueCreate(1024, sizeof(send_message_t));
+    isotp_send_message_queue = xQueueCreate(1024, sizeof(send_message_t));
     done_sem = xSemaphoreCreateBinary();
     isotp_send_queue_sem = xSemaphoreCreateBinary();
     isotp_mutex = xSemaphoreCreateMutex();

@@ -8,6 +8,7 @@
 #include "periodic_messages.h"
 
 #define NUM_ISOTP_LINK_CONTAINERS 5
+#define NUM_PERIODIC_MESSAGES_PER_LINK 16
 
 typedef struct IsoTpLinkContainer {
     IsoTpLink link;
@@ -15,8 +16,8 @@ typedef struct IsoTpLinkContainer {
     uint8_t *recv_buf;
     uint8_t *send_buf;
     uint8_t *payload_buf;
-    TaskHandle_t periodic_message_task_handles[4];
-    periodic_message_t periodic_messages[4];
+    TaskHandle_t periodic_message_task_handles[NUM_PERIODIC_MESSAGES_PER_LINK];
+    periodic_message_t periodic_messages[NUM_PERIODIC_MESSAGES_PER_LINK];
 } IsoTpLinkContainer;
 
 IsoTpLinkContainer isotp_link_containers[NUM_ISOTP_LINK_CONTAINERS];

@@ -76,12 +76,12 @@ void ble_command_received(uint8_t *input, size_t length)
             uint32_t tx_address = read_uint32_be(input + 10);
             uint8_t *pdu = input + 14;
             ESP_LOGI(BLE_CALLBACKS_TAG, "command_received[0x04]: periodic_message_index = %d interval_ms = %d rx_address = %08x tx_address = %08x payload_length = %08x", periodic_message_index, interval_ms, rx_address, tx_address, payload_length);
-            send_message_t *msg = calloc(1, sizeof(send_message_t));
-            msg->rx_id = rx_address;
-            msg->tx_id = tx_address;
-            msg->msg_length = payload_length - 8;
-            msg->buffer = malloc(msg->msg_length);
-            memcpy(msg->buffer, pdu, msg->msg_length);
+            send_message_t msg;
+            msg.rx_id = rx_address;
+            msg.tx_id = tx_address;
+            msg.msg_length = payload_length - 8;
+            msg.buffer = malloc(msg.msg_length);
+            memcpy(msg.buffer, pdu, msg.msg_length);
             int isotp_link_container_index = find_isotp_link_container_index_by_receive_arbitration_id(tx_address); // flipped?
             assert(isotp_link_container_index != -1);
             IsoTpLinkContainer *isotp_link_container = &isotp_link_containers[isotp_link_container_index];
@@ -103,7 +103,6 @@ void ble_command_received(uint8_t *input, size_t length)
             assert(isotp_link_container_index != -1);
             IsoTpLinkContainer *isotp_link_container = &isotp_link_containers[isotp_link_container_index];
             TaskHandle_t task_handle = isotp_link_container->periodic_message_task_handles[periodic_message_index];
-            ESP_LOGI(BLE_CALLBACKS_TAG, "task_handle = %p", task_handle);
             if (task_handle != NULL) {
                 vTaskDelete(task_handle);
                 isotp_link_container->periodic_message_task_handles[periodic_message_index] = NULL;

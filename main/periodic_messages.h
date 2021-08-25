@@ -5,7 +5,7 @@
 #include "messages.h"
 
 typedef struct periodic_message_t {
-  send_message_t *msg;
+  send_message_t msg;
   uint32_t interval_ms;
 } periodic_message_t;
 

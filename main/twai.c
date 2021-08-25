@@ -28,7 +28,6 @@ void twai_receive_task(void *arg)
         int isotp_link_container_index = find_isotp_link_container_index_by_receive_arbitration_id(twai_rx_msg.identifier);
         assert(isotp_link_container_index != -1);
         IsoTpLinkContainer *isotp_link_container = &isotp_link_containers[isotp_link_container_index];
-        ESP_LOGD(TWAI_TAG, "twai_receive_task: link match");
         ESP_LOGD(TWAI_TAG, "Taking isotp_mutex");
         xSemaphoreTake(isotp_mutex, (TickType_t)100);
         ESP_LOGD(TWAI_TAG, "Took isotp_mutex");

@@ -521,6 +521,8 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
             is_connected = false;
             disable_notification();
             esp_ble_gap_start_advertising(&spp_adv_params);
+            // TODO: don't restart just because a bluetooth client disconnects
+            esp_restart();
             break;
         }
         case ESP_GATTS_OPEN_EVT: {

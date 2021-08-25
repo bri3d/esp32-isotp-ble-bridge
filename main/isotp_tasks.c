@@ -73,7 +73,6 @@ void isotp_send_queue_task(void *arg)
         int isotp_link_container_index = find_isotp_link_container_index_by_receive_arbitration_id(msg.tx_id);
         assert(isotp_link_container_index != -1);
         IsoTpLinkContainer *isotp_link_container = &isotp_link_containers[isotp_link_container_index];
-        ESP_LOGI(ISOTP_TASKS_TAG, "isotp_send_queue_task: link match");
         isotp_send(&isotp_link_container->link, msg.buffer, msg.msg_length);
         // cleanup
         xSemaphoreGive(isotp_mutex);
