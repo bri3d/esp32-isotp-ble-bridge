@@ -21,6 +21,7 @@ typedef struct IsoTpLinkContainer {
 
 IsoTpLinkContainer isotp_link_containers[NUM_ISOTP_LINK_CONTAINERS];
 
-int find_isotp_link_container_index(uint32_t rx_id);
+int find_isotp_link_container_index_by_send_arbitration_id(uint32_t arbitration_id);
+int find_isotp_link_container_index_by_receive_arbitration_id(uint32_t arbitration_id);
 
 #endif

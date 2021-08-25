@@ -69,16 +69,15 @@ void isotp_send_queue_task(void *arg)
         xQueueReceive(isotp_send_message_queue, &msg, portMAX_DELAY);
         xSemaphoreTake(isotp_mutex, (TickType_t)100);
         ESP_LOGI(ISOTP_TASKS_TAG, "isotp_send_queue_task: sending message with %d size (rx id: %08x / tx id: %08x)", msg.msg_length, msg.rx_id, msg.tx_id);
-        for (int i = 0; i < NUM_ISOTP_LINK_CONTAINERS; ++i) {
-            IsoTpLinkContainer *isotp_link_container = &isotp_link_containers[i];
-            // flipped?
-            if (msg.tx_id == isotp_link_container->link.receive_arbitration_id) {
-                ESP_LOGI(ISOTP_TASKS_TAG, "isotp_send_queue_task: link match");
-                isotp_send(&isotp_link_container->link, msg.buffer, msg.msg_length);
-                xSemaphoreGive(isotp_mutex);
-                xSemaphoreGive(isotp_link_container->wait_for_isotp_data_sem);
-            }
-        }
+        // flipped
+        int isotp_link_container_index = find_isotp_link_container_index_by_receive_arbitration_id(msg.tx_id);
+        assert(isotp_link_container_index != -1);
+        IsoTpLinkContainer *isotp_link_container = &isotp_link_containers[isotp_link_container_index];
+        ESP_LOGI(ISOTP_TASKS_TAG, "isotp_send_queue_task: link match");
+        isotp_send(&isotp_link_container->link, msg.buffer, msg.msg_length);
+        // cleanup
+        xSemaphoreGive(isotp_mutex);
+        xSemaphoreGive(isotp_link_container->wait_for_isotp_data_sem);
         free(msg.buffer);
     }
     vTaskDelete(NULL);

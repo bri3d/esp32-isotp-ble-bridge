@@ -71,18 +71,18 @@ void ble_command_received(uint8_t *input, size_t length)
         case 0x04: { // Command 4: start periodic message
             uint8_t periodic_message_index = input[1];
             uint16_t interval_ms = read_uint16_be(input + 2);
-            uint16_t rx_address = read_uint16_be(input + 4);
-            uint16_t tx_address = read_uint16_be(input + 6);
-            uint16_t length = read_uint16_be(input + 8);
-            uint8_t *pdu = input + 10;
-            ESP_LOGI(BLE_CALLBACKS_TAG, "command_received[0x04]: periodic_message_index = %d interval_ms = %d rx_address = %04x tx_address = %04x length = %08x", periodic_message_index, interval_ms, rx_address, tx_address, length);
-            send_message_t msg;
-            msg.rx_id = rx_address;
-            msg.tx_id = tx_address;
-            msg.msg_length = length;
-            msg.buffer = malloc(msg.msg_length);
-            memcpy(msg.buffer, pdu, msg.msg_length);
-            int isotp_link_container_index = find_isotp_link_container_index(rx_address);
+            uint16_t payload_length = read_uint16_be(input + 4);
+            uint32_t rx_address = read_uint32_be(input + 6);
+            uint32_t tx_address = read_uint32_be(input + 10);
+            uint8_t *pdu = input + 14;
+            ESP_LOGI(BLE_CALLBACKS_TAG, "command_received[0x04]: periodic_message_index = %d interval_ms = %d rx_address = %08x tx_address = %08x payload_length = %08x", periodic_message_index, interval_ms, rx_address, tx_address, payload_length);
+            send_message_t *msg = calloc(1, sizeof(send_message_t));
+            msg->rx_id = rx_address;
+            msg->tx_id = tx_address;
+            msg->msg_length = payload_length - 8;
+            msg->buffer = malloc(msg->msg_length);
+            memcpy(msg->buffer, pdu, msg->msg_length);
+            int isotp_link_container_index = find_isotp_link_container_index_by_receive_arbitration_id(tx_address); // flipped?
             assert(isotp_link_container_index != -1);
             IsoTpLinkContainer *isotp_link_container = &isotp_link_containers[isotp_link_container_index];
             periodic_message_t *periodic_message = &isotp_link_container->periodic_messages[periodic_message_index];
@@ -94,14 +94,20 @@ void ble_command_received(uint8_t *input, size_t length)
         }
         case 0x05: { // Command 5: stop periodic message
             uint8_t periodic_message_index = input[1];
-            uint16_t rx_address = read_uint16_be(input + 2);
-            ESP_LOGI(BLE_CALLBACKS_TAG, "command_received[0x05]: periodic_message_index = %d rx_address = %04x", periodic_message_index, rx_address);
-            int isotp_link_container_index = find_isotp_link_container_index(rx_address);
+            uint16_t interval_ms = read_uint16_be(input + 2);
+            uint16_t payload_length = read_uint16_be(input + 4);
+            uint32_t rx_address = read_uint32_be(input + 6);
+            uint32_t tx_address = read_uint32_be(input + 10);
+            ESP_LOGI(BLE_CALLBACKS_TAG, "command_received[0x05]: periodic_message_index = %d interval_ms = %d rx_address = %08x tx_address = %08x payload_length = %08x", periodic_message_index, interval_ms, rx_address, tx_address, payload_length);
+            int isotp_link_container_index = find_isotp_link_container_index_by_receive_arbitration_id(tx_address); // flipped?
             assert(isotp_link_container_index != -1);
             IsoTpLinkContainer *isotp_link_container = &isotp_link_containers[isotp_link_container_index];
-            TaskHandle_t *task_handle = &isotp_link_container->periodic_message_task_handles[periodic_message_index];
-            vTaskDelete(task_handle);
-            *task_handle = NULL;
+            TaskHandle_t task_handle = isotp_link_container->periodic_message_task_handles[periodic_message_index];
+            ESP_LOGI(BLE_CALLBACKS_TAG, "task_handle = %p", task_handle);
+            if (task_handle != NULL) {
+                vTaskDelete(task_handle);
+                isotp_link_container->periodic_message_task_handles[periodic_message_index] = NULL;
+            }
             break;
         }
         default: {

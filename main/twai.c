@@ -25,21 +25,18 @@ void twai_receive_task(void *arg)
         for (int i = 0; i < twai_rx_msg.data_length_code; i++) {
             ESP_LOGD(TWAI_TAG, "RX Data: %02X", twai_rx_msg.data[i]);
         }
-        for (int i = 0; i < NUM_ISOTP_LINK_CONTAINERS; ++i) {
-            IsoTpLinkContainer *isotp_link_container = &isotp_link_containers[i];
-            // flipped?
-            if (twai_rx_msg.identifier == isotp_link_container->link.receive_arbitration_id) {
-                ESP_LOGD(TWAI_TAG, "twai_receive_task: link match");
-                ESP_LOGD(TWAI_TAG, "Taking isotp_mutex");
-                xSemaphoreTake(isotp_mutex, (TickType_t)100);
-                ESP_LOGD(TWAI_TAG, "Took isotp_mutex");
-                isotp_on_can_message(&isotp_link_container->link, twai_rx_msg.data, twai_rx_msg.data_length_code);
-                ESP_LOGD(TWAI_TAG, "twai_receive_task: giving isotp_mutex");
-                xSemaphoreGive(isotp_mutex);
-                ESP_LOGD(TWAI_TAG, "twai_receive_task: giving wait_for_isotp_data_sem");
-                xSemaphoreGive(isotp_link_container->wait_for_isotp_data_sem);
-            }
-        }
+        int isotp_link_container_index = find_isotp_link_container_index_by_receive_arbitration_id(twai_rx_msg.identifier);
+        assert(isotp_link_container_index != -1);
+        IsoTpLinkContainer *isotp_link_container = &isotp_link_containers[isotp_link_container_index];
+        ESP_LOGD(TWAI_TAG, "twai_receive_task: link match");
+        ESP_LOGD(TWAI_TAG, "Taking isotp_mutex");
+        xSemaphoreTake(isotp_mutex, (TickType_t)100);
+        ESP_LOGD(TWAI_TAG, "Took isotp_mutex");
+        isotp_on_can_message(&isotp_link_container->link, twai_rx_msg.data, twai_rx_msg.data_length_code);
+        ESP_LOGD(TWAI_TAG, "twai_receive_task: giving isotp_mutex");
+        xSemaphoreGive(isotp_mutex);
+        ESP_LOGD(TWAI_TAG, "twai_receive_task: giving wait_for_isotp_data_sem");
+        xSemaphoreGive(isotp_link_container->wait_for_isotp_data_sem);
     }
     vTaskDelete(NULL);
 }
