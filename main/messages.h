@@ -1,3 +1,6 @@
+#ifndef __MESSAGES_H__
+#define __MESSAGES_H__
+
 // Simple struct for a dynamically sized send message
 
 typedef struct send_message
@@ -7,3 +10,5 @@ typedef struct send_message
     uint32_t rx_id;
     uint32_t tx_id;
 } send_message_t;
+
+#endif

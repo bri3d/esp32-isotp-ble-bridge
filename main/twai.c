@@ -17,6 +17,10 @@ void twai_receive_task(void *arg)
     {
         twai_message_t twai_rx_msg;
         twai_receive(&twai_rx_msg, portMAX_DELAY); // If no message available, should block and yield.
+        // TODO: skip anything other than CAN-D for now for performance
+        if (twai_rx_msg.identifier < 0x500) {
+            continue;
+        }
         ESP_LOGI(TWAI_TAG, "Received TWAI message with identifier %08X and length %08X", twai_rx_msg.identifier, twai_rx_msg.data_length_code);
         for (int i = 0; i < twai_rx_msg.data_length_code; i++) {
             ESP_LOGD(TWAI_TAG, "RX Data: %02X", twai_rx_msg.data[i]);

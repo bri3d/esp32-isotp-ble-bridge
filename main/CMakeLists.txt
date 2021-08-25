@@ -10,5 +10,9 @@ idf_component_register(
   "ble_callbacks.c"
   "isotp_callbacks.c"
   "twai.c"
+  "isotp_links.c"
+  "isotp_tasks.c"
+  "isotp_link_containers.c"
+  "periodic_messages.c"
   INCLUDE_DIRS "."
 )
