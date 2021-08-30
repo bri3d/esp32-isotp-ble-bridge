@@ -315,7 +315,7 @@ void send_task(void *pvParameters)
         if (xQueueReceive(spp_send_queue, (void * )&event, (TickType_t)portMAX_DELAY)) {
             ESP_LOGI(GATTS_TABLE_TAG, "Got BT message to send with length %08X", event.msg_length);
             if (is_connected == false) {
-                ESP_LOGE(GATTS_TABLE_TAG, "%s BLE not connected; skipping", __func__);
+                ESP_LOGD(GATTS_TABLE_TAG, "%s BLE not connected; skipping", __func__);
                 continue;
             }
             if (event.msg_length) {

@@ -9,6 +9,7 @@ typedef struct send_message
     uint8_t *buffer;
     uint32_t rx_id;
     uint32_t tx_id;
+    bool reuse_buffer;
 } send_message_t;
 
 #endif

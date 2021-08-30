@@ -75,9 +75,11 @@ void isotp_send_queue_task(void *arg)
         IsoTpLinkContainer *isotp_link_container = &isotp_link_containers[isotp_link_container_index];
         isotp_send(&isotp_link_container->link, msg.buffer, msg.msg_length);
         // cleanup
+        if (msg.reuse_buffer == false) {
+            free(msg.buffer);
+        }
         xSemaphoreGive(isotp_mutex);
         xSemaphoreGive(isotp_link_container->wait_for_isotp_data_sem);
-        free(msg.buffer);
     }
     vTaskDelete(NULL);
 }
