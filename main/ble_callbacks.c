@@ -47,7 +47,7 @@ void ble_command_received(uint8_t *input, size_t length)
 {
     uint8_t command_id = input[0];
     switch (command_id) {
-        case 0x01: { // Command 1: Change Tx/Rx addresses
+        case 0x01: { // Command 1: Change global Tx/Rx addresses (deprecated)
             uint16_t tx_address = read_uint16_be(input + 1);
             uint16_t rx_address = read_uint16_be(input + 3);
             ESP_LOGI(BLE_CALLBACKS_TAG, "command_received[0x01]: tx_address = %04x rx_address = %04x", tx_address, rx_address);
@@ -102,8 +102,7 @@ void ble_command_received(uint8_t *input, size_t length)
                 pointer += msg->msg_length;
             }
             // task
-            int ret = xTaskCreatePinnedToCore(periodic_messages_task, "periodic_messages_task", 4096, periodic_message, ISOTP_TSK_PRIO, task_handle, tskNO_AFFINITY);
-            ESP_LOGI(BLE_CALLBACKS_TAG, "xTaskCreatePinnedToCore = %d xPortGetFreeHeapSize = %d", ret, xPortGetFreeHeapSize());
+            xTaskCreatePinnedToCore(periodic_messages_task, "periodic_messages_task", 4096, periodic_message, ISOTP_TSK_PRIO, task_handle, tskNO_AFFINITY);
             break;
         }
         case 0x05: { // Command 5: stop periodic message
