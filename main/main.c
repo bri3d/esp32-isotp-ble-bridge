@@ -39,6 +39,8 @@
 
 void app_main(void)
 {
+    // turn off logs for production
+    esp_log_level_set("*", ESP_LOG_NONE);
     // Configure LED enable pin (switches transistor to push LED)
     gpio_config_t io_conf_led;
     io_conf_led.intr_type = GPIO_INTR_DISABLE;
