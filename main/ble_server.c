@@ -237,7 +237,6 @@ static uint8_t find_char_and_desr_index(uint16_t handle)
 static bool store_wr_buffer(esp_ble_gatts_cb_param_t *p_data)
 {
     temp_spp_recv_data_node_p1 = (spp_receive_data_node_t *)malloc(sizeof(spp_receive_data_node_t));
-
     if(temp_spp_recv_data_node_p1 == NULL){
         ESP_LOGI(GATTS_TABLE_TAG, "malloc error %s %d", __func__, __LINE__);
         return false;
@@ -251,10 +250,10 @@ static bool store_wr_buffer(esp_ble_gatts_cb_param_t *p_data)
     temp_spp_recv_data_node_p1->node_buff = (uint8_t *)malloc(p_data->write.len);
     temp_spp_recv_data_node_p2 = temp_spp_recv_data_node_p1;
     memcpy(temp_spp_recv_data_node_p1->node_buff,p_data->write.value,p_data->write.len);
-    if(SppRecvDataBuff.node_num == 0){
+    if (SppRecvDataBuff.node_num == 0){
         SppRecvDataBuff.first_node = temp_spp_recv_data_node_p1;
         SppRecvDataBuff.node_num++;
-    }else{
+    } else{
         SppRecvDataBuff.node_num++;
     }
 
@@ -642,7 +641,9 @@ void ble_send(uint32_t tx_id, uint32_t rx_id, const void* src, size_t size) {
     send_message_t msg;
     msg.tx_id = __builtin_bswap32(tx_id); // swap to big endian
     msg.rx_id = __builtin_bswap32(rx_id); // swap to big endian
+    msg.reuse_buffer = false;
     msg.buffer = malloc(size);
+    assert(msg.buffer != NULL);
     msg.msg_length = size;
     memcpy(msg.buffer, src, size);
     xQueueSend(spp_send_queue, &msg, 50 / portTICK_PERIOD_MS);

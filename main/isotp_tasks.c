@@ -77,6 +77,8 @@ void isotp_send_queue_task(void *arg)
         // cleanup
         if (msg.reuse_buffer == false) {
             free(msg.buffer);
+        } else {
+            ESP_LOGI(ISOTP_TASKS_TAG, "isotp_send_queue_task: reusing buffer");
         }
         xSemaphoreGive(isotp_mutex);
         xSemaphoreGive(isotp_link_container->wait_for_isotp_data_sem);

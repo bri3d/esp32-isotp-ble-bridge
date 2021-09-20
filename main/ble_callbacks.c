@@ -26,7 +26,9 @@ void received_from_ble(const void *src, size_t size)
     msg.rx_id = read_uint32_be(src);
     msg.tx_id = read_uint32_be(src + 4);
     msg.msg_length = size - 8;
+    msg.reuse_buffer = false;
     msg.buffer = malloc(msg.msg_length);
+    assert(msg.buffer != NULL);
     const uint8_t *pdu = src + 8;
     memcpy(msg.buffer, pdu, msg.msg_length);
     ESP_LOGI(BLE_CALLBACKS_TAG, "Received a message from BLE stack with length %08X rx_id %08x tx_id %08x", size, msg.rx_id, msg.tx_id);
@@ -95,6 +97,7 @@ void ble_command_received(uint8_t *input, size_t length)
                 msg->tx_id = tx_address;
                 msg->msg_length = read_uint16_be(input + pointer);
                 pointer += 2;
+                msg->reuse_buffer = true;
                 msg->buffer = malloc(msg->msg_length);
                 msg->reuse_buffer = true;
                 assert(msg->buffer != NULL);
