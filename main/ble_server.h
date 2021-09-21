@@ -7,6 +7,20 @@
  ****************************************************************************************
  */
 
+//BLE header ID
+#define BLE_HEADER_ID				0xF1
+
+//BLE command flags
+#define BLE_COMMAND_FLAG_PER_ENABLE		1
+#define BLE_COMMAND_FLAG_PER_CLEAR		2
+#define BLE_COMMAND_FLAG_PER_ADD		4
+#define BLE_COMMAND_FLAG_MULT_PK		8
+#define BLE_COMMAND_FLAG_MULT_END		16
+
+
+//BLE send queue size
+#define SEND_QUEUE_SIZE				32
+
 #define spp_sprintf(s,...)         sprintf((char*)(s), ##__VA_ARGS__)
 #define SPP_DATA_MAX_LEN           (512)
 #define SPP_CMD_MAX_LEN            (20)
@@ -31,6 +45,22 @@ enum{
     SPP_IDX_SPP_STATUS_CFG,
     SPP_IDX_NB,
 };
+
+typedef struct send_message{
+	int32_t msg_length;
+	uint8_t* buffer;
+	uint16_t rxID;
+	uint16_t txID;
+} send_message_t;
+
+// Header we expect to receive on BLE packets
+typedef struct ble_header {
+	uint8_t		hdID;
+	uint8_t		cmdFlags;
+	uint16_t	rxID;
+	uint16_t	txID;
+	uint16_t	cmdSize;
+} ble_header_t;
 
 typedef struct 
 {
