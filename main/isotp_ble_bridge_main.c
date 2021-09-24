@@ -35,8 +35,8 @@
 #define RECEIVE_IDENTIFIER 			0x7E8
 
 //Queue sizes
-#define TASK_QUEUE_SIZE     		10
-#define MESSAGE_QUEUE_SIZE			10
+#define TASK_QUEUE_SIZE     		16
+#define MESSAGE_QUEUE_SIZE			16
 
 static send_message_t msgPersist[MAX_MESSAGE_PERSIST];
 static uint16_t msgPersistCount = 0;
@@ -124,22 +124,21 @@ int16_t message_send()
 		return false;
 	}
 
-	//Cycle through messages
-	if(msgPersistPosition >= msgPersistCount)
-		msgPersistPosition = 0;
-
-
-	//Make sure the message has length
-	uint16_t mPos = msgPersistPosition++;
-	send_message_t* pMsg = &msgPersist[mPos];
-	if(pMsg->msg_length == 0)
+	//don't flood the queues
+	if(uxQueueMessagesWaiting(send_message_queue) || !ble_queue_spaces())
 	{
 		xSemaphoreGive(persist_message_mutex);
 		return false;
 	}
 
-	//don't flood the queues
-	if(uxQueueMessagesWaiting(send_message_queue) || !ble_queue_spaces())
+	//Cycle through messages
+	if(msgPersistPosition >= msgPersistCount)
+		msgPersistPosition = 0;
+
+	//Make sure the message has length
+	uint16_t mPos = msgPersistPosition++;
+	send_message_t* pMsg = &msgPersist[mPos];
+	if(pMsg->msg_length == 0)
 	{
 		xSemaphoreGive(persist_message_mutex);
 		return false;

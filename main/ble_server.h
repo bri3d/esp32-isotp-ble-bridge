@@ -23,7 +23,7 @@
 
 
 //BLE send queue size
-#define SEND_QUEUE_SIZE					10
+#define SEND_QUEUE_SIZE					16
 
 #define spp_sprintf(s,...)         		sprintf((char*)(s), ##__VA_ARGS__)
 #define SPP_DATA_MAX_LEN           		(512)
