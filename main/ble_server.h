@@ -5,10 +5,14 @@
 /*
  * DEFINES
  ****************************************************************************************
- */
+*/
+
+
+//Do not send packets are faster than
+#define BLE_PACKET_DELAY				15
 
 //BLE header ID
-#define BLE_HEADER_ID				0xF1
+#define BLE_HEADER_ID					0xF1
 
 //BLE command flags
 #define BLE_COMMAND_FLAG_PER_ENABLE		1
@@ -19,13 +23,13 @@
 
 
 //BLE send queue size
-#define SEND_QUEUE_SIZE				32
+#define SEND_QUEUE_SIZE					10
 
-#define spp_sprintf(s,...)         sprintf((char*)(s), ##__VA_ARGS__)
-#define SPP_DATA_MAX_LEN           (512)
-#define SPP_CMD_MAX_LEN            (20)
-#define SPP_STATUS_MAX_LEN         (20)
-#define SPP_DATA_BUFF_MAX_LEN      (2*1024)
+#define spp_sprintf(s,...)         		sprintf((char*)(s), ##__VA_ARGS__)
+#define SPP_DATA_MAX_LEN           		(512)
+#define SPP_CMD_MAX_LEN            		(20)
+#define SPP_STATUS_MAX_LEN         		(20)
+#define SPP_DATA_BUFF_MAX_LEN      		(2*1024)
 ///Attributes State Machine
 enum{
     SPP_IDX_SVC,
@@ -71,3 +75,5 @@ typedef struct
 
 void ble_server_setup(ble_server_callbacks callbacks);
 void ble_send(const void* src, size_t size);
+bool ble_connected();
+uint16_t ble_queue_spaces();

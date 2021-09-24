@@ -29,13 +29,13 @@
 #include "esp_bt_main.h"
 #include "ble_server.h"
 
-#define GATTS_TABLE_TAG  "GATTS_ISOTP_BLE"
+#define GATTS_TABLE_TAG  					"GATTS_ISOTP_BLE"
 
-#define SPP_PROFILE_NUM             1
-#define SPP_PROFILE_APP_IDX         0
-#define ESP_SPP_APP_ID              0x56
-#define DEVICE_NAME_GAP          "BLE_TO_ISOTP"    //The Device Name Characteristics in GAP
-#define SPP_SVC_INST_ID	            0
+#define SPP_PROFILE_NUM             		1
+#define SPP_PROFILE_APP_IDX         		0
+#define ESP_SPP_APP_ID              		0x56
+#define DEVICE_NAME_GAP          			"BLE_TO_ISOTP"    //The Device Name Characteristics in GAP
+#define SPP_SVC_INST_ID	            		0
 
 /// SPP Service
 static const uint16_t spp_service_uuid = 0xABF0;
@@ -303,7 +303,7 @@ void send_task(void *pvParameters)
 
     while(1) {
 		if(xQueueReceive(spp_send_queue, (void * )&event, (TickType_t)portMAX_DELAY)) {
-            ESP_LOGI(GATTS_TABLE_TAG, "Got BT message to send with length %08X", event.msg_length);
+			ESP_LOGI(GATTS_TABLE_TAG, "Got BT message to send with length %08X", event.msg_length);
 			if (event.msg_length) {
                 if(!enable_data_ntf){
                     ESP_LOGE(GATTS_TABLE_TAG, "%s do not enable data Notify\n", __func__);
@@ -353,6 +353,7 @@ void send_task(void *pvParameters)
 							ntf_header->cmdFlags = BLE_COMMAND_FLAG_MULT_PK;
 							memcpy(ntf_value_p + sizeof(ble_header_t),data + (current_num - 1)*packSize, packSize);
 							esp_ble_gatts_send_indicate(spp_gatts_if, spp_conn_id, spp_handle_table[SPP_IDX_SPP_DATA_NTY_VAL], (spp_mtu_size-3), ntf_value_p, false);
+							vTaskDelay(pdMS_TO_TICKS(BLE_PACKET_DELAY));
 						}else if(current_num == total_num){
 							ble_header_t* ntf_header = (ble_header_t*)ntf_value_p;
 							ntf_header->hdID = BLE_HEADER_ID;
@@ -360,15 +361,15 @@ void send_task(void *pvParameters)
 							ntf_header->cmdFlags = BLE_COMMAND_FLAG_MULT_PK;
 							memcpy(ntf_value_p + sizeof(ble_header_t),data + (total_num - 1)*packSize,(event.msg_length - (total_num - 1)*packSize));
 							esp_ble_gatts_send_indicate(spp_gatts_if, spp_conn_id, spp_handle_table[SPP_IDX_SPP_DATA_NTY_VAL],(event.msg_length - (total_num - 1)*packSize + sizeof(ble_header_t)), ntf_value_p, false);
-                        }
-                        vTaskDelay(20 / portTICK_PERIOD_MS);
+						}
                         current_num++;
                     }
 					free(ntf_value_p);
                 }
 				free(data);
                 free(event.buffer);
-            }
+			}
+			vTaskDelay(pdMS_TO_TICKS(BLE_PACKET_DELAY));
         }
     }
     vTaskDelete(NULL);
@@ -391,9 +392,9 @@ void spp_cmd_task(void * arg)
 static void spp_task_init(void)
 {
 	spp_send_queue = xQueueCreate(SEND_QUEUE_SIZE, sizeof(send_message_t));
-    xTaskCreate(send_task, "BLE_sendTask", 2048, NULL, 1, NULL);
+	xTaskCreate(send_task, "BLE_sendTask", 2048, NULL, 1, NULL);
     cmd_cmd_queue = xQueueCreate(SEND_QUEUE_SIZE, sizeof(uint32_t));
-    xTaskCreate(spp_cmd_task, "spp_cmd_task", 2048, NULL, 1, NULL);
+	xTaskCreate(spp_cmd_task, "spp_cmd_task", 2048, NULL, 1, NULL);
 }
 
 static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param)
@@ -421,7 +422,7 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
     esp_ble_gatts_cb_param_t *p_data = (esp_ble_gatts_cb_param_t *) param;
     uint8_t res = 0xff;
 
-    ESP_LOGI(GATTS_TABLE_TAG, "event = %x\n",event);
+	ESP_LOGI(GATTS_TABLE_TAG, "event = %x\n",event);
     switch (event) {
     	case ESP_GATTS_REG_EVT:
     	    ESP_LOGI(GATTS_TABLE_TAG, "%s %d\n", __func__, __LINE__);
@@ -442,7 +443,7 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
     	case ESP_GATTS_WRITE_EVT: {
     	    res = find_char_and_desr_index(p_data->write.handle);
             if(p_data->write.is_prep == false){
-                ESP_LOGI(GATTS_TABLE_TAG, "ESP_GATTS_WRITE_EVT : handle = %d\n", res);
+				ESP_LOGI(GATTS_TABLE_TAG, "ESP_GATTS_WRITE_EVT : handle = %d\n", res);
                 if(res == SPP_IDX_SPP_COMMAND_VAL){
                     uint8_t * spp_cmd_buff = NULL;
                     spp_cmd_buff = (uint8_t *)malloc((spp_mtu_size - 3) * sizeof(uint8_t));
@@ -495,7 +496,7 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
     	case ESP_GATTS_CONNECT_EVT:
     	    spp_conn_id = p_data->connect.conn_id;
     	    spp_gatts_if = gatts_if;
-    	    is_connected = true;
+			is_connected = true;
     	    memcpy(&spp_remote_bda,&p_data->connect.remote_bda,sizeof(esp_bd_addr_t));
         	break;
     	case ESP_GATTS_DISCONNECT_EVT:
@@ -535,7 +536,7 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
 
 static void gatts_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble_gatts_cb_param_t *param)
 {
-    ESP_LOGI(GATTS_TABLE_TAG, "EVT %d, gatts if %d\n", event, gatts_if);
+	ESP_LOGI(GATTS_TABLE_TAG, "EVT %d, gatts if %d\n", event, gatts_if);
 
     /* If event is register event, store the gatts_if for each profile */
     if (event == ESP_GATTS_REG_EVT) {
@@ -618,4 +619,14 @@ void ble_send(const void* src, size_t size) {
 	msg.txID = time & 0xFFFF;
 	memcpy(msg.buffer, src, size);
 	xQueueSend(spp_send_queue, &msg, 50 / portTICK_PERIOD_MS);
+}
+
+bool ble_connected()
+{
+	return is_connected;
+}
+
+uint16_t ble_queue_spaces()
+{
+	return uxQueueSpacesAvailable(spp_send_queue);
 }
