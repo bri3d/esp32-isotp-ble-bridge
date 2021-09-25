@@ -338,7 +338,7 @@ void send_task(void *pvParameters)
 					{
 						//Do we have any other responses ready to send?
 						send_message_t nextEvent;
-						if(xQueuePeek(spp_send_queue, (void * )&nextEvent, pdMS_TO_TICKS(BLE_PACKET_DELAY))) {
+						if(xQueuePeek(spp_send_queue, (void * )&nextEvent, 0)) {
 							//If we add this to the packet are we oversize?
 							if(nextEvent.msg_length + sizeof(ble_header_t) + dataLength <= (spp_mtu_size - 3)) {
 								//We are good, add it but first remove it from the Queue
@@ -422,7 +422,7 @@ void send_task(void *pvParameters)
 						free(ntf_value_p);
 					}
 					free(data);
-					vTaskDelay(0);
+					vTaskDelay(pdMS_TO_TICKS(BLE_PACKET_DELAY));
 				}
 			}
 		}
