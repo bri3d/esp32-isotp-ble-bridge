@@ -54,6 +54,7 @@ static const uint8_t spp_adv_data[23] = {
     0x0F,0x09, 'B', 'L', 'E', '_', 'T', 'O', '_', 'I', 'S', 'O', 'T','P', '2', '0'
 };
 
+static bool kill_ble_tasks = false;
 static ble_server_callbacks server_callbacks;
 
 static uint16_t spp_mtu_size = 23;
@@ -304,11 +305,20 @@ void send_task(void *pvParameters)
 
 	while(1) {
 		if(xQueueReceive(spp_send_queue, (void * )&event, (TickType_t)portMAX_DELAY)) {
-			ESP_LOGI(GATTS_TABLE_TAG, "Got BT message to send with length %08X", event.msg_length);
+			//Are we shutting down?
+			if(kill_ble_tasks) {
+				free(event.buffer);
+				while(xQueueReceive(spp_send_queue, (void * )&event, 0))
+					free(event.buffer);
+				break;
+			}
+
+			//If not continue
+			ESP_LOGI(GATTS_TABLE_TAG, "Sending message [%08X]", event.msg_length);
 			if(event.msg_length) {
 				//Is GATT setup and ready to notify?
 				if(!enable_data_ntf){
-					ESP_LOGE(GATTS_TABLE_TAG, "%s notifications not enabled, message deleted\n", __func__);
+					ESP_LOGI(GATTS_TABLE_TAG, "%s notifications not enabled, message deleted\n", __func__);
 					free(event.buffer);
 				} else
 				{  	//Connected and notifications are enabled check for congestion
@@ -368,7 +378,7 @@ void send_task(void *pvParameters)
 									data = nextData;
 									dataLength = nextDataLength;
 
-									ESP_LOGI(GATTS_TABLE_TAG, "-Multisend Packet-");
+									ESP_LOGI(GATTS_TABLE_TAG, "-Multisend Packet [%08X]-", nextEvent.msg_length);
 								} else {
 									//This shouldn't happen?
 									break;
@@ -429,19 +439,29 @@ void send_task(void *pvParameters)
 			}
 		}
     }
-    vTaskDelete(NULL);
+	vTaskDelete(NULL);
 }
 
 void spp_cmd_task(void * arg)
 {
     uint8_t * cmd_id;
 
-    for(;;){
-        vTaskDelay(50 / portTICK_PERIOD_MS);
-        if(xQueueReceive(cmd_cmd_queue, &cmd_id, portMAX_DELAY)) {
-            esp_log_buffer_char(GATTS_TABLE_TAG,(char *)(cmd_id),strlen((char *)cmd_id));
-            free(cmd_id);
-        }
+	while(1){
+		if(xQueueReceive(cmd_cmd_queue, &cmd_id, portMAX_DELAY)) {
+			//Are we shutting down?
+			if(kill_ble_tasks) {
+				free(cmd_id);
+				while(xQueueReceive(cmd_cmd_queue, &cmd_id, 0))
+					free(cmd_id);
+
+				break;
+			}
+
+			//Nope continue
+			esp_log_buffer_char(GATTS_TABLE_TAG,(char *)(cmd_id),strlen((char *)cmd_id));
+			free(cmd_id);
+		}
+		vTaskDelay(0);
     }
     vTaskDelete(NULL);
 }
@@ -450,7 +470,7 @@ static void spp_task_init(void)
 {
 	spp_send_queue = xQueueCreate(SEND_QUEUE_SIZE, sizeof(send_message_t));
 	xTaskCreate(send_task, "BLE_sendTask", 2048, NULL, 1, NULL);
-    cmd_cmd_queue = xQueueCreate(SEND_QUEUE_SIZE, sizeof(uint32_t));
+	cmd_cmd_queue = xQueueCreate(SEND_QUEUE_SIZE, sizeof(uint32_t));
 	xTaskCreate(spp_cmd_task, "spp_cmd_task", 2048, NULL, 1, NULL);
 }
 
@@ -482,13 +502,13 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
 	ESP_LOGI(GATTS_TABLE_TAG, "event = %x\n",event);
     switch (event) {
     	case ESP_GATTS_REG_EVT:
-    	    ESP_LOGI(GATTS_TABLE_TAG, "%s %d\n", __func__, __LINE__);
+			ESP_LOGI(GATTS_TABLE_TAG, "%s %d\n", __func__, __LINE__);
         	esp_ble_gap_set_device_name(DEVICE_NAME_GAP);
 
-        	ESP_LOGI(GATTS_TABLE_TAG, "%s %d\n", __func__, __LINE__);
+			ESP_LOGI(GATTS_TABLE_TAG, "%s %d\n", __func__, __LINE__);
         	esp_ble_gap_config_adv_data_raw((uint8_t *)spp_adv_data, sizeof(spp_adv_data));
 
-        	ESP_LOGI(GATTS_TABLE_TAG, "%s %d\n", __func__, __LINE__);
+			ESP_LOGI(GATTS_TABLE_TAG, "%s %d\n", __func__, __LINE__);
         	esp_ble_gatts_create_attr_tab(spp_gatt_db, gatts_if, SPP_IDX_NB, SPP_SVC_INST_ID);
        	break;
     	case ESP_GATTS_READ_EVT:
@@ -510,7 +530,7 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
                     }
                     memset(spp_cmd_buff,0x0,(spp_mtu_size - 3));
                     memcpy(spp_cmd_buff,p_data->write.value,p_data->write.len);
-                    xQueueSend(cmd_cmd_queue,&spp_cmd_buff,10/portTICK_PERIOD_MS);
+					xQueueSend(cmd_cmd_queue,&spp_cmd_buff,10/portTICK_PERIOD_MS);
                 }else if(res == SPP_IDX_SPP_DATA_NTF_CFG){
                     if((p_data->write.len == 2)&&(p_data->write.value[0] == 0x01)&&(p_data->write.value[1] == 0x00)){
                         enable_notification();
@@ -524,13 +544,13 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
                     //TODO:
                 }
             }else if((p_data->write.is_prep == true)&&(res == SPP_IDX_SPP_DATA_RECV_VAL)){
-                ESP_LOGI(GATTS_TABLE_TAG, "ESP_GATTS_PREP_WRITE_EVT : handle = %d\n", res);
+				ESP_LOGI(GATTS_TABLE_TAG, "ESP_GATTS_PREP_WRITE_EVT : handle = %d\n", res);
                 store_wr_buffer(p_data);
             }
       	 	break;
     	}
     	case ESP_GATTS_EXEC_WRITE_EVT:{
-    	    ESP_LOGI(GATTS_TABLE_TAG, "ESP_GATTS_EXEC_WRITE_EVT\n");
+			ESP_LOGI(GATTS_TABLE_TAG, "ESP_GATTS_EXEC_WRITE_EVT\n");
     	    if(p_data->exec_write.exec_write_flag){
     	        send_buffered_message();
     	        free_write_buffer();
@@ -580,7 +600,7 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
 			}
 			break;
     	case ESP_GATTS_CREAT_ATTR_TAB_EVT:{
-    	    ESP_LOGI(GATTS_TABLE_TAG, "The number handle =%x\n",param->add_attr_tab.num_handle);
+			ESP_LOGI(GATTS_TABLE_TAG, "The number handle =%x\n",param->add_attr_tab.num_handle);
     	    if (param->add_attr_tab.status != ESP_GATT_OK){
     	        ESP_LOGE(GATTS_TABLE_TAG, "Create attribute table failed, error code=0x%x", param->add_attr_tab.status);
     	    }
@@ -608,7 +628,7 @@ static void gatts_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_
         if (param->reg.status == ESP_GATT_OK) {
             spp_profile_tab[SPP_PROFILE_APP_IDX].gatts_if = gatts_if;
         } else {
-            ESP_LOGI(GATTS_TABLE_TAG, "Reg app failed, app_id %04x, status %d\n",param->reg.app_id, param->reg.status);
+			ESP_LOGI(GATTS_TABLE_TAG, "Reg app failed, app_id %04x, status %d\n",param->reg.app_id, param->reg.status);
             return;
         }
     }
@@ -628,6 +648,7 @@ static void gatts_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_
 
 void ble_server_setup(ble_server_callbacks callbacks)
 {
+	kill_ble_tasks = false;
 	ble_congested = xSemaphoreCreateBinary();
 
     server_callbacks = callbacks;
@@ -662,7 +683,7 @@ void ble_server_setup(ble_server_callbacks callbacks)
         ESP_LOGE(GATTS_TABLE_TAG, "%s init bluetooth failed: %s\n", __func__, esp_err_to_name(ret));
         return;
     }
-    ret = esp_bluedroid_enable();
+	ret = esp_bluedroid_enable();
     if (ret) {
         ESP_LOGE(GATTS_TABLE_TAG, "%s enable bluetooth failed: %s\n", __func__, esp_err_to_name(ret));
         return;
@@ -672,13 +693,31 @@ void ble_server_setup(ble_server_callbacks callbacks)
     esp_ble_gap_register_callback(gap_event_handler);
     esp_ble_gatts_app_register(ESP_SPP_APP_ID);
 
-    spp_task_init();
+	spp_task_init();
 
 	return;
 }
 
 void ble_server_shutdown()
 {
+	//set kill flag
+	kill_ble_tasks = true;
+
+	//with kill flag set we need to send a message to activate the task
+	send_message_t msg;
+	msg.buffer = malloc(1);
+	msg.msg_length = 10;
+	xQueueSend(spp_send_queue, &msg, 50 / portTICK_PERIOD_MS);
+
+	//with kill flag set we need to send a message to activate the task
+	uint8_t* spp_cmd_buff = malloc(1);
+	xQueueSend(cmd_cmd_queue,&spp_cmd_buff,10/portTICK_PERIOD_MS);
+
+	//shutdown BLE
+	esp_bluedroid_disable();
+	esp_bluedroid_deinit();
+
+	//delete our congestion semaphore
 	vSemaphoreDelete(ble_congested);
 }
 

@@ -152,7 +152,7 @@ int16_t message_send()
 
 	xQueueSend(send_message_queue, &msg, pdMS_TO_TICKS(50));
 
-	ESP_LOGI(EXAMPLE_TAG, "Persistent message send with length %04X", msg.msg_length);
+	ESP_LOGI(EXAMPLE_TAG, "Persistent message sent [%04X]", msg.msg_length);
 	xSemaphoreGive(persist_message_mutex);
 
 	return true;
@@ -194,7 +194,7 @@ int16_t message_add(const void* src, size_t size)
 	pMsg->msg_length = size;
 	xSemaphoreGive(persist_message_mutex);
 
-	ESP_LOGI(EXAMPLE_TAG, "Persistent message added with length %04X", size);
+	ESP_LOGI(EXAMPLE_TAG, "Persistent message added [%04X]", size);
 
 	return true;
 }
@@ -400,7 +400,7 @@ void received_from_ble(const void* src, size_t size)
 		{
 			if(!message_enabled())
 			{
-				ESP_LOGI(EXAMPLE_TAG, "Received a message from BLE stack with length %04X", header->cmdSize);
+				ESP_LOGI(EXAMPLE_TAG, "Received message [%04X]", header->cmdSize);
 				send_message_t msg;
 				msg.buffer = malloc(header->cmdSize);
 				memcpy(msg.buffer, data, header->cmdSize);
@@ -492,7 +492,9 @@ void app_main(void)
     xSemaphoreTake(done_sem, portMAX_DELAY);
 
     ESP_ERROR_CHECK(twai_driver_uninstall());
-    ESP_LOGI(EXAMPLE_TAG, "Driver uninstalled");
+	ESP_LOGI(EXAMPLE_TAG, "Driver uninstalled");
+
+	ble_server_shutdown();
 
 	vSemaphoreDelete(persist_message_send);
 	vSemaphoreDelete(isotp_task_sem);

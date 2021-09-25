@@ -73,6 +73,7 @@ typedef struct
 } ble_server_callbacks;
 
 void ble_server_setup(ble_server_callbacks callbacks);
+void ble_server_shutdown();
 void ble_send(const void* src, size_t size);
 bool ble_connected();
 uint16_t ble_queue_spaces();
