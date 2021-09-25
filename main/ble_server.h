@@ -23,7 +23,7 @@
 
 
 //BLE send queue size
-#define SEND_QUEUE_SIZE					32
+#define SEND_QUEUE_SIZE					64
 
 //BLE max congestion
 #define BLE_CONGESTION_MAX				5000
