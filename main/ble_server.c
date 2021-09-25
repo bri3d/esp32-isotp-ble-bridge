@@ -301,7 +301,7 @@ void send_task(void *pvParameters)
 {
 	send_message_t event;
 
-    while(1) {
+	while(1) {
 		if(xQueueReceive(spp_send_queue, (void * )&event, (TickType_t)portMAX_DELAY)) {
 			ESP_LOGI(GATTS_TABLE_TAG, "Got BT message to send with length %08X", event.msg_length);
 			if(event.msg_length) {
@@ -311,7 +311,7 @@ void send_task(void *pvParameters)
 					free(event.buffer);
 				} else
 				{  	//Connected and notifications are enabled
-					uint32_t dataLength = event.msg_length + sizeof(ble_header_t);
+                    uint32_t dataLength = event.msg_length + sizeof(ble_header_t);
 					uint8_t* data = (uint8_t *)malloc(sizeof(uint8_t)*dataLength);
 					if(data == NULL){
 						ESP_LOGE(GATTS_TABLE_TAG, "%s malloc.1 failed\n", __func__);
@@ -320,6 +320,7 @@ void send_task(void *pvParameters)
 					}
 					memset(data, 0x0, dataLength);
 					memcpy(data + sizeof(ble_header_t), event.buffer, event.msg_length);
+					free(event.buffer);
 
 					//Build header
 					ble_header_t* header = (ble_header_t*)data;
@@ -327,6 +328,56 @@ void send_task(void *pvParameters)
 					header->cmdSize = event.msg_length;
 					header->rxID = event.rxID;
 					header->txID = event.txID;
+
+					//Can we add more?
+					while(dataLength < (spp_mtu_size - 3))
+					{
+						//Do we have any other responses ready to send?
+						send_message_t nextEvent;
+						if(xQueuePeek(spp_send_queue, (void * )&nextEvent, 0)) {
+							//If we add this to the packet are we oversize?
+							if(nextEvent.msg_length + sizeof(ble_header_t) + dataLength <= (spp_mtu_size - 3)) {
+								//We are good, add it but first remove it from the Queue
+								if(xQueueReceive(spp_send_queue, (void * )&nextEvent, 0)) {
+									uint32_t nextDataLength = dataLength + nextEvent.msg_length + sizeof(ble_header_t);
+									uint8_t* nextData = (uint8_t *)malloc(sizeof(uint8_t)*nextDataLength);
+									if(nextData == NULL){
+										ESP_LOGE(GATTS_TABLE_TAG, "%s malloc.1 failed\n", __func__);
+										free(nextEvent.buffer);
+										break;
+									}
+									//Copy old data and newEvent buffer into newData
+									memset(nextData, 0x0, nextDataLength);
+									memcpy(nextData, data, dataLength);
+									memcpy(nextData + dataLength + sizeof(ble_header_t), nextEvent.buffer, nextEvent.msg_length);
+									free(nextEvent.buffer);
+
+									//Build header
+									ble_header_t* header = (ble_header_t*)(nextData + dataLength);
+									header->hdID = BLE_HEADER_ID;
+									header->cmdSize = nextEvent.msg_length;
+									header->rxID = nextEvent.rxID;
+									header->txID = nextEvent.txID;
+
+									//free old data and replace with new
+									free(data);
+									data = nextData;
+									dataLength = nextDataLength;
+
+									ESP_LOGI(GATTS_TABLE_TAG, "-Multisend Packet-");
+								} else {
+									//This shouldn't happen?
+									break;
+								}
+							} else {
+								//Oversized dont add
+								break;
+							}
+						} else {
+							//Nothing waiting in Queue
+							break;
+						}
+					}
 
 					if(dataLength <= (spp_mtu_size - 3)) {
 						esp_ble_gatts_send_indicate(spp_gatts_if, spp_conn_id, spp_handle_table[SPP_IDX_SPP_DATA_NTY_VAL], dataLength, data, false);
@@ -341,7 +392,6 @@ void send_task(void *pvParameters)
 						if(ntf_value_p == NULL){
 							ESP_LOGE(GATTS_TABLE_TAG, "%s malloc.2 failed\n", __func__);
 							free(data);
-							free(event.buffer);
 							break;
 						}
 
@@ -368,7 +418,6 @@ void send_task(void *pvParameters)
 						free(ntf_value_p);
 					}
 					free(data);
-					free(event.buffer);
 					vTaskDelay(pdMS_TO_TICKS(BLE_PACKET_DELAY));
 				}
 			}
