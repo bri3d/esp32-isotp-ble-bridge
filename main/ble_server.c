@@ -383,15 +383,17 @@ void send_task(void *pvParameters)
 						}
 					}
 
+					//If payload is larger than MTU cut it up, this should only happen if its a single payload (multisend should not exceed mtu size)
 					if(dataLength <= (spp_mtu_size - 3)) {
 						esp_ble_gatts_send_indicate(spp_gatts_if, spp_conn_id, spp_handle_table[SPP_IDX_SPP_DATA_NTY_VAL], dataLength, data, false);
-					} else if(dataLength > spp_mtu_size) {
+					} else {
 						//determine packet count
 						uint16_t packSize = spp_mtu_size - 3 - sizeof(ble_header_t);
 						uint8_t total_num = event.msg_length / packSize;
 						if(event.msg_length % (spp_mtu_size - 3 - sizeof(ble_header_t)) != 0)
 							total_num++;
 
+						//allocate space for payload chunk
 						uint8_t* ntf_value_p = (uint8_t *)malloc((spp_mtu_size-3)*sizeof(uint8_t));
 						if(ntf_value_p == NULL){
 							ESP_LOGE(GATTS_TABLE_TAG, "%s malloc.2 failed\n", __func__);
@@ -399,6 +401,7 @@ void send_task(void *pvParameters)
 							break;
 						}
 
+						//send the chunks
 						uint8_t current_num = 1;
 						while(current_num <= total_num){
 							if(current_num < total_num){
