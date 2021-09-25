@@ -7,10 +7,6 @@
  ****************************************************************************************
 */
 
-
-//Do not send packets are faster than
-#define BLE_PACKET_DELAY				10
-
 //BLE header ID
 #define BLE_HEADER_ID					0xF1
 

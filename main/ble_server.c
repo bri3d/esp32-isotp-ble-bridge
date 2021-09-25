@@ -408,7 +408,6 @@ void send_task(void *pvParameters)
 								ntf_header->cmdFlags = BLE_COMMAND_FLAG_MULT_PK;
 								memcpy(ntf_value_p + sizeof(ble_header_t),data + (current_num - 1)*packSize, packSize);
 								esp_ble_gatts_send_indicate(spp_gatts_if, spp_conn_id, spp_handle_table[SPP_IDX_SPP_DATA_NTY_VAL], (spp_mtu_size-3), ntf_value_p, false);
-								vTaskDelay(pdMS_TO_TICKS(BLE_PACKET_DELAY));
 							}else if(current_num == total_num){
 								ble_header_t* ntf_header = (ble_header_t*)ntf_value_p;
 								ntf_header->hdID = BLE_HEADER_ID;
@@ -422,7 +421,7 @@ void send_task(void *pvParameters)
 						free(ntf_value_p);
 					}
 					free(data);
-					vTaskDelay(pdMS_TO_TICKS(BLE_PACKET_DELAY));
+					vTaskDelay(0);
 				}
 			}
 		}
