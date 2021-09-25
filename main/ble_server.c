@@ -61,6 +61,7 @@ static uint16_t spp_conn_id = 0xffff;
 static esp_gatt_if_t spp_gatts_if = 0xff;
 QueueHandle_t spp_send_queue = NULL;
 static QueueHandle_t cmd_cmd_queue = NULL;
+static SemaphoreHandle_t ble_congested;
 
 static bool enable_data_ntf = false;
 static bool is_connected = false;
@@ -310,7 +311,10 @@ void send_task(void *pvParameters)
 					ESP_LOGE(GATTS_TABLE_TAG, "%s notifications not enabled, message deleted\n", __func__);
 					free(event.buffer);
 				} else
-				{  	//Connected and notifications are enabled
+				{  	//Connected and notifications are enabled check for congestion
+					xSemaphoreTake(ble_congested, pdMS_TO_TICKS(BLE_CONGESTION_MAX));
+					xSemaphoreGive(ble_congested);
+
                     uint32_t dataLength = event.msg_length + sizeof(ble_header_t);
 					uint8_t* data = (uint8_t *)malloc(sizeof(uint8_t)*dataLength);
 					if(data == NULL){
@@ -334,7 +338,7 @@ void send_task(void *pvParameters)
 					{
 						//Do we have any other responses ready to send?
 						send_message_t nextEvent;
-						if(xQueuePeek(spp_send_queue, (void * )&nextEvent, 0)) {
+						if(xQueuePeek(spp_send_queue, (void * )&nextEvent, pdMS_TO_TICKS(BLE_PACKET_DELAY))) {
 							//If we add this to the packet are we oversize?
 							if(nextEvent.msg_length + sizeof(ble_header_t) + dataLength <= (spp_mtu_size - 3)) {
 								//We are good, add it but first remove it from the Queue
@@ -352,7 +356,7 @@ void send_task(void *pvParameters)
 									memcpy(nextData + dataLength + sizeof(ble_header_t), nextEvent.buffer, nextEvent.msg_length);
 									free(nextEvent.buffer);
 
-									//Build header
+									//Build new header
 									ble_header_t* header = (ble_header_t*)(nextData + dataLength);
 									header->hdID = BLE_HEADER_ID;
 									header->cmdSize = nextEvent.msg_length;
@@ -418,7 +422,7 @@ void send_task(void *pvParameters)
 						free(ntf_value_p);
 					}
 					free(data);
-					vTaskDelay(pdMS_TO_TICKS(BLE_PACKET_DELAY));
+					vTaskDelay(0);
 				}
 			}
 		}
@@ -486,7 +490,7 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
         	esp_ble_gatts_create_attr_tab(spp_gatt_db, gatts_if, SPP_IDX_NB, SPP_SVC_INST_ID);
        	break;
     	case ESP_GATTS_READ_EVT:
-            res = find_char_and_desr_index(p_data->read.handle);
+			res = find_char_and_desr_index(p_data->read.handle);
             if(res == SPP_IDX_SPP_STATUS_VAL){
                 //TODO:client read the status characteristic
             }
@@ -545,10 +549,10 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
     	case ESP_GATTS_STOP_EVT:
         	break;
     	case ESP_GATTS_CONNECT_EVT:
-    	    spp_conn_id = p_data->connect.conn_id;
+			spp_conn_id = p_data->connect.conn_id;
     	    spp_gatts_if = gatts_if;
 			is_connected = true;
-    	    memcpy(&spp_remote_bda,&p_data->connect.remote_bda,sizeof(esp_bd_addr_t));
+			memcpy(&spp_remote_bda,&p_data->connect.remote_bda,sizeof(esp_bd_addr_t));
         	break;
     	case ESP_GATTS_DISCONNECT_EVT:
     	    is_connected = false;
@@ -563,8 +567,16 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
     	    break;
     	case ESP_GATTS_LISTEN_EVT:
     	    break;
-    	case ESP_GATTS_CONGEST_EVT:
-    	    break;
+		case ESP_GATTS_CONGEST_EVT:
+			if(p_data->connect.conn_id == spp_conn_id) {
+				if(p_data->congest.congested) xSemaphoreTake(ble_congested, 1);
+					else xSemaphoreGive(ble_congested);
+
+				ESP_LOGI(GATTS_TABLE_TAG, "Congestion: %d", p_data->congest.congested);
+			} else {
+				ESP_LOGI(GATTS_TABLE_TAG, "Congestion: connection id does not match? %d", p_data->connect.conn_id);
+			}
+			break;
     	case ESP_GATTS_CREAT_ATTR_TAB_EVT:{
     	    ESP_LOGI(GATTS_TABLE_TAG, "The number handle =%x\n",param->add_attr_tab.num_handle);
     	    if (param->add_attr_tab.status != ESP_GATT_OK){
@@ -614,6 +626,8 @@ static void gatts_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_
 
 void ble_server_setup(ble_server_callbacks callbacks)
 {
+	ble_congested = xSemaphoreCreateBinary();
+
     server_callbacks = callbacks;
     esp_err_t ret;
     esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
@@ -658,7 +672,12 @@ void ble_server_setup(ble_server_callbacks callbacks)
 
     spp_task_init();
 
-    return;
+	return;
+}
+
+void ble_server_shutdown()
+{
+	vSemaphoreDelete(ble_congested);
 }
 
 void ble_send(const void* src, size_t size) {

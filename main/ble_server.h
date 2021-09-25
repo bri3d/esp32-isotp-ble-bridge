@@ -9,7 +9,7 @@
 
 
 //Do not send packets are faster than
-#define BLE_PACKET_DELAY				15
+#define BLE_PACKET_DELAY				10
 
 //BLE header ID
 #define BLE_HEADER_ID					0xF1
@@ -24,6 +24,9 @@
 
 //BLE send queue size
 #define SEND_QUEUE_SIZE					32
+
+//BLE max congestion
+#define BLE_CONGESTION_MAX				5000
 
 #define spp_sprintf(s,...)         		sprintf((char*)(s), ##__VA_ARGS__)
 #define SPP_DATA_MAX_LEN           		(512)
