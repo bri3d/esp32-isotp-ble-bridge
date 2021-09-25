@@ -575,6 +575,7 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
     	    spp_gatts_if = gatts_if;
 			is_connected = true;
 			memcpy(&spp_remote_bda,&p_data->connect.remote_bda,sizeof(esp_bd_addr_t));
+			xSemaphoreGive(ble_congested);
         	break;
     	case ESP_GATTS_DISCONNECT_EVT:
     	    is_connected = false;
@@ -593,8 +594,6 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
 			if(p_data->connect.conn_id == spp_conn_id) {
 				if(p_data->congest.congested) xSemaphoreTake(ble_congested, 1);
 					else xSemaphoreGive(ble_congested);
-
-				ESP_LOGI(GATTS_TABLE_TAG, "Congestion: %d", p_data->congest.congested);
 			} else {
 				ESP_LOGI(GATTS_TABLE_TAG, "Congestion: connection id does not match? %d", p_data->connect.conn_id);
 			}

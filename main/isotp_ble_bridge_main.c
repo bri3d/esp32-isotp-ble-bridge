@@ -28,7 +28,7 @@
 #define ISOTP_BUFSIZE 				4096
 #define EXAMPLE_TAG 				"ISOTPtoBLE"
 #define MAX_MESSAGE_PERSIST			64
-#define PERSIST_MESSAGE_DELAY		0
+#define PERSIST_MESSAGE_DELAY		2
 
 #define ISOTP_MAX_RECEIVE_PAYLOAD 	512
 #define SEND_IDENTIFIER 			0x7E0
@@ -302,7 +302,7 @@ static void persist_task(void *arg)
 	while(1) {
 		xSemaphoreTake(persist_message_send, pdMS_TO_TICKS(50));
 		message_send();
-		vTaskDelay(pdMS_TO_TICKS(PERSIST_MESSAGE_DELAY+SEND_QUEUE_SIZE-ble_queue_spaces()));
+		vTaskDelay(pdMS_TO_TICKS((SEND_QUEUE_SIZE-ble_queue_spaces())*PERSIST_MESSAGE_DELAY));
 	}
 	vTaskDelete(NULL);
 }
