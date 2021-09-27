@@ -429,6 +429,7 @@ void send_task(void *pvParameters)
 							data_pos += data_len;
 							esp_ble_gatts_send_indicate(spp_gatts_if, spp_conn_id, spp_handle_table[SPP_IDX_SPP_DATA_NTY_VAL], pack_size, data_chunk, false);
 						}
+						free(data_chunk);
 					}
 					free(data);
 					vTaskDelay(0);
