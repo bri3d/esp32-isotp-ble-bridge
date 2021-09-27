@@ -7,6 +7,7 @@
 #define LED_RED_HALF	0x008000
 #define LED_GREEN_HALF	0x800000
 #define LED_BLUE_HALF	0x000080
+#define LED_OFF			0x000000
 
 void led_start();
 void led_stop();

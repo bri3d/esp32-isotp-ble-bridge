@@ -113,7 +113,7 @@ void persist_set(uint16_t enable)
 	msgPersistEnabled = enable;
 
 	//set LED
-	if(enable) led_setcolor(LED_GREEN_HALF, LED_BLUE_HALF, 20, 32);
+	if(enable) led_setcolor(LED_BLUE_HALF, LED_OFF, 25, 40);
 		led_setcolor(LED_GREEN_HALF, LED_GREEN_HALF, 1000, 1);
 
 	xSemaphoreGive(persist_message_mutex);

@@ -59,6 +59,7 @@ void led_task(void *arg)
 		xSemaphoreGive(isotp_mutex);
 		vTaskDelay(pdMS_TO_TICKS(led_delay));
 	}
+	led_setcolor(LED_OFF, LED_OFF, 1000, 1);
 	vSemaphoreDelete(led_mutex);
     led_mutex = NULL;
 	vTaskDelete(NULL);
@@ -71,7 +72,7 @@ void led_start()
 
 	// Configure LED to Red
 	ws2812_control_init(LED_GPIO_NUM);
-	set_color(LED_RED);
+	led_setcolor(LED_RED, LED_RED, 1000, 1);
 
 	//Start led task
 	led_kill = false;
