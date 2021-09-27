@@ -397,41 +397,38 @@ void send_task(void *pvParameters)
 					if(dataLength <= (spp_mtu_size - 3)) {
 						esp_ble_gatts_send_indicate(spp_gatts_if, spp_conn_id, spp_handle_table[SPP_IDX_SPP_DATA_NTY_VAL], dataLength, data, false);
 					} else {
-						//determine packet count
-						uint16_t packSize = spp_mtu_size - 3 - sizeof(ble_header_t);
-						uint8_t total_num = event.msg_length / packSize;
-						if(event.msg_length % (spp_mtu_size - 3 - sizeof(ble_header_t)) != 0)
-							total_num++;
+						//determine packet size
+						uint16_t pack_size = spp_mtu_size - 3;
 
 						//allocate space for payload chunk
-						uint8_t* ntf_value_p = (uint8_t *)malloc((spp_mtu_size-3)*sizeof(uint8_t));
-						if(ntf_value_p == NULL){
+						uint8_t* data_chunk = (uint8_t *)malloc(pack_size*sizeof(uint8_t));
+						if(data_chunk == NULL){
 							ESP_LOGE(GATTS_TABLE_TAG, "%s malloc.2 failed\n", __func__);
 							free(data);
 							break;
 						}
 
+						//First chunk
+						uint16_t data_pos = pack_size;
+						memcpy(data_chunk, data, pack_size);
+						data_chunk[1] = BLE_COMMAND_FLAG_MULT_PK;
+						esp_ble_gatts_send_indicate(spp_gatts_if, spp_conn_id, spp_handle_table[SPP_IDX_SPP_DATA_NTY_VAL], pack_size, data_chunk, false);
+
 						//send the chunks
-						uint8_t current_num = 1;
-						while(current_num <= total_num){
-							if(current_num < total_num){
-								ble_header_t* ntf_header = (ble_header_t*)ntf_value_p;
-								ntf_header->hdID = BLE_HEADER_ID;
-								ntf_header->cmdSize = event.msg_length;
-								ntf_header->cmdFlags = BLE_COMMAND_FLAG_MULT_PK;
-								memcpy(ntf_value_p + sizeof(ble_header_t),data + (current_num - 1)*packSize, packSize);
-								esp_ble_gatts_send_indicate(spp_gatts_if, spp_conn_id, spp_handle_table[SPP_IDX_SPP_DATA_NTY_VAL], (spp_mtu_size-3), ntf_value_p, false);
-							}else if(current_num == total_num){
-								ble_header_t* ntf_header = (ble_header_t*)ntf_value_p;
-								ntf_header->hdID = BLE_HEADER_ID;
-								ntf_header->cmdSize = event.msg_length;
-								ntf_header->cmdFlags = BLE_COMMAND_FLAG_MULT_PK;
-								memcpy(ntf_value_p + sizeof(ble_header_t),data + (total_num - 1)*packSize,(event.msg_length - (total_num - 1)*packSize));
-								esp_ble_gatts_send_indicate(spp_gatts_if, spp_conn_id, spp_handle_table[SPP_IDX_SPP_DATA_NTY_VAL],(event.msg_length - (total_num - 1)*packSize + sizeof(ble_header_t)), ntf_value_p, false);
-							}
-							current_num++;
+						uint8_t chunk_num = 1;
+						while(data_pos < dataLength)
+						{
+							//constrain data len
+							uint16_t data_len = dataLength - data_pos;
+							if(data_len > pack_size - 2)
+								data_len = pack_size - 2;
+
+							data_chunk[0] = BLE_HEADER_ID;
+							data_chunk[1] = chunk_num++;
+							memcpy(data_chunk + 2, data + data_pos, data_len);
+							data_pos += data_len;
+							esp_ble_gatts_send_indicate(spp_gatts_if, spp_conn_id, spp_handle_table[SPP_IDX_SPP_DATA_NTY_VAL], pack_size, data_chunk, false);
 						}
-						free(ntf_value_p);
 					}
 					free(data);
 					vTaskDelay(0);
