@@ -9,14 +9,13 @@
 
 //BLE header ID
 #define BLE_HEADER_ID					0xF1
+#define BLE_PARTIAL_ID					0xF2
 
 //BLE command flags
 #define BLE_COMMAND_FLAG_PER_ENABLE		1
 #define BLE_COMMAND_FLAG_PER_CLEAR		2
 #define BLE_COMMAND_FLAG_PER_ADD		4
 #define BLE_COMMAND_FLAG_MULT_PK		8
-#define BLE_COMMAND_FLAG_MULT_END		16
-
 
 //BLE send queue size
 #define SEND_QUEUE_SIZE					64

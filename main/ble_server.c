@@ -423,7 +423,7 @@ void send_task(void *pvParameters)
 							if(data_len > pack_size - 2)
 								data_len = pack_size - 2;
 
-							data_chunk[0] = BLE_HEADER_ID;
+							data_chunk[0] = BLE_PARTIAL_ID;
 							data_chunk[1] = chunk_num++;
 							memcpy(data_chunk + 2, data + data_pos, data_len);
 							data_pos += data_len;
