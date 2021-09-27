@@ -17,6 +17,7 @@
 #define BLE_COMMAND_FLAG_PER_ADD		4
 #define BLE_COMMAND_FLAG_MULT_PK		8
 
+
 //BLE send queue size
 #define SEND_QUEUE_SIZE					64
 
@@ -73,6 +74,6 @@ typedef struct
 
 void ble_server_setup(ble_server_callbacks callbacks);
 void ble_server_shutdown();
-void ble_send(const void* src, size_t size);
+void ble_send(uint32_t txID, uint32_t rxID, const void* src, size_t size);
 bool ble_connected();
 uint16_t ble_queue_spaces();

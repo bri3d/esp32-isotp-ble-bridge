@@ -29,7 +29,7 @@
 #include "esp_bt_main.h"
 #include "ble_server.h"
 
-#define GATTS_TABLE_TAG  					"GATTS_ISOTP_BLE"
+#define BLE_TAG  							"BLE"
 
 #define SPP_PROFILE_NUM             		1
 #define SPP_PROFILE_APP_IDX         		0
@@ -233,7 +233,7 @@ static bool store_wr_buffer(esp_ble_gatts_cb_param_t *p_data)
     temp_spp_recv_data_node_p1 = (spp_receive_data_node_t *)malloc(sizeof(spp_receive_data_node_t));
 
     if(temp_spp_recv_data_node_p1 == NULL){
-        ESP_LOGI(GATTS_TABLE_TAG, "malloc error %s %d\n", __func__, __LINE__);
+		ESP_LOGI(BLE_TAG, "malloc error %s %d", __func__, __LINE__);
         return false;
     }
     if(temp_spp_recv_data_node_p2 != NULL){
@@ -314,11 +314,11 @@ void send_task(void *pvParameters)
 			}
 
 			//If not continue
-			ESP_LOGI(GATTS_TABLE_TAG, "Sending message [%08X]", event.msg_length);
+			ESP_LOGI(BLE_TAG, "Sending message [%08X]", event.msg_length);
 			if(event.msg_length) {
 				//Is GATT setup and ready to notify?
 				if(!enable_data_ntf){
-					ESP_LOGI(GATTS_TABLE_TAG, "%s notifications not enabled, message deleted\n", __func__);
+					ESP_LOGI(BLE_TAG, "%s notifications not enabled, message deleted", __func__);
 					free(event.buffer);
 				} else
 				{  	//Connected and notifications are enabled check for congestion
@@ -328,7 +328,7 @@ void send_task(void *pvParameters)
                     uint32_t dataLength = event.msg_length + sizeof(ble_header_t);
 					uint8_t* data = (uint8_t *)malloc(sizeof(uint8_t)*dataLength);
 					if(data == NULL){
-						ESP_LOGE(GATTS_TABLE_TAG, "%s malloc.1 failed\n", __func__);
+						ESP_LOGE(BLE_TAG, "%s malloc.1 failed", __func__);
 						free(event.buffer);
 						break;
 					}
@@ -356,7 +356,7 @@ void send_task(void *pvParameters)
 									uint32_t nextDataLength = dataLength + nextEvent.msg_length + sizeof(ble_header_t);
 									uint8_t* nextData = (uint8_t *)malloc(sizeof(uint8_t)*nextDataLength);
 									if(nextData == NULL){
-										ESP_LOGE(GATTS_TABLE_TAG, "%s malloc.1 failed\n", __func__);
+										ESP_LOGE(BLE_TAG, "%s malloc.1 failed", __func__);
 										free(nextEvent.buffer);
 										break;
 									}
@@ -378,7 +378,7 @@ void send_task(void *pvParameters)
 									data = nextData;
 									dataLength = nextDataLength;
 
-									ESP_LOGI(GATTS_TABLE_TAG, "-Multisend Packet [%08X]-", nextEvent.msg_length);
+									ESP_LOGI(BLE_TAG, "-Multisend Packet [%08X]-", nextEvent.msg_length);
 								} else {
 									//This shouldn't happen?
 									break;
@@ -403,7 +403,7 @@ void send_task(void *pvParameters)
 						//allocate space for payload chunk
 						uint8_t* data_chunk = (uint8_t *)malloc(pack_size*sizeof(uint8_t));
 						if(data_chunk == NULL){
-							ESP_LOGE(GATTS_TABLE_TAG, "%s malloc.2 failed\n", __func__);
+							ESP_LOGE(BLE_TAG, "%s malloc.2 failed", __func__);
 							free(data);
 							break;
 						}
@@ -456,7 +456,7 @@ void spp_cmd_task(void * arg)
 			}
 
 			//Nope continue
-			esp_log_buffer_char(GATTS_TABLE_TAG,(char *)(cmd_id),strlen((char *)cmd_id));
+			esp_log_buffer_char(BLE_TAG,(char *)(cmd_id),strlen((char *)cmd_id));
 			free(cmd_id);
 		}
 		vTaskDelay(0);
@@ -475,7 +475,7 @@ static void spp_task_init(void)
 static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param)
 {
     esp_err_t err;
-    ESP_LOGE(GATTS_TABLE_TAG, "GAP_EVT, event %d\n", event);
+	ESP_LOGE(BLE_TAG, "GAP_EVT, event %d", event);
 
     switch (event) {
     case ESP_GAP_BLE_ADV_DATA_RAW_SET_COMPLETE_EVT:
@@ -484,7 +484,7 @@ static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param
     case ESP_GAP_BLE_ADV_START_COMPLETE_EVT:
         //advertising start complete event to indicate advertising start successfully or failed
         if((err = param->adv_start_cmpl.status) != ESP_BT_STATUS_SUCCESS) {
-            ESP_LOGE(GATTS_TABLE_TAG, "Advertising start failed: %s\n", esp_err_to_name(err));
+			ESP_LOGE(BLE_TAG, "Advertising start failed: %s", esp_err_to_name(err));
         }
         break;
     default:
@@ -497,16 +497,16 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
     esp_ble_gatts_cb_param_t *p_data = (esp_ble_gatts_cb_param_t *) param;
     uint8_t res = 0xff;
 
-	ESP_LOGI(GATTS_TABLE_TAG, "event = %x\n",event);
+	ESP_LOGI(BLE_TAG, "event = %x",event);
     switch (event) {
     	case ESP_GATTS_REG_EVT:
-			ESP_LOGI(GATTS_TABLE_TAG, "%s %d\n", __func__, __LINE__);
+			ESP_LOGI(BLE_TAG, "%s %d", __func__, __LINE__);
         	esp_ble_gap_set_device_name(DEVICE_NAME_GAP);
 
-			ESP_LOGI(GATTS_TABLE_TAG, "%s %d\n", __func__, __LINE__);
+			ESP_LOGI(BLE_TAG, "%s %d", __func__, __LINE__);
         	esp_ble_gap_config_adv_data_raw((uint8_t *)spp_adv_data, sizeof(spp_adv_data));
 
-			ESP_LOGI(GATTS_TABLE_TAG, "%s %d\n", __func__, __LINE__);
+			ESP_LOGI(BLE_TAG, "%s %d", __func__, __LINE__);
         	esp_ble_gatts_create_attr_tab(spp_gatt_db, gatts_if, SPP_IDX_NB, SPP_SVC_INST_ID);
        	break;
     	case ESP_GATTS_READ_EVT:
@@ -518,12 +518,12 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
     	case ESP_GATTS_WRITE_EVT: {
     	    res = find_char_and_desr_index(p_data->write.handle);
             if(p_data->write.is_prep == false){
-				ESP_LOGI(GATTS_TABLE_TAG, "ESP_GATTS_WRITE_EVT : handle = %d\n", res);
+				ESP_LOGI(BLE_TAG, "ESP_GATTS_WRITE_EVT : handle = %d", res);
                 if(res == SPP_IDX_SPP_COMMAND_VAL){
                     uint8_t * spp_cmd_buff = NULL;
                     spp_cmd_buff = (uint8_t *)malloc((spp_mtu_size - 3) * sizeof(uint8_t));
                     if(spp_cmd_buff == NULL){
-                        ESP_LOGE(GATTS_TABLE_TAG, "%s malloc failed\n", __func__);
+						ESP_LOGE(BLE_TAG, "%s malloc failed", __func__);
                         break;
                     }
                     memset(spp_cmd_buff,0x0,(spp_mtu_size - 3));
@@ -542,13 +542,13 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
                     //TODO:
                 }
             }else if((p_data->write.is_prep == true)&&(res == SPP_IDX_SPP_DATA_RECV_VAL)){
-				ESP_LOGI(GATTS_TABLE_TAG, "ESP_GATTS_PREP_WRITE_EVT : handle = %d\n", res);
+				ESP_LOGI(BLE_TAG, "ESP_GATTS_PREP_WRITE_EVT : handle = %d", res);
                 store_wr_buffer(p_data);
             }
       	 	break;
     	}
     	case ESP_GATTS_EXEC_WRITE_EVT:{
-			ESP_LOGI(GATTS_TABLE_TAG, "ESP_GATTS_EXEC_WRITE_EVT\n");
+			ESP_LOGI(BLE_TAG, "ESP_GATTS_EXEC_WRITE_EVT");
     	    if(p_data->exec_write.exec_write_flag){
     	        send_buffered_message();
     	        free_write_buffer();
@@ -593,16 +593,16 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
 				if(p_data->congest.congested) xSemaphoreTake(ble_congested, 1);
 					else xSemaphoreGive(ble_congested);
 			} else {
-				ESP_LOGI(GATTS_TABLE_TAG, "Congestion: connection id does not match? %d", p_data->connect.conn_id);
+				ESP_LOGI(BLE_TAG, "Congestion: connection id does not match? %d", p_data->connect.conn_id);
 			}
 			break;
     	case ESP_GATTS_CREAT_ATTR_TAB_EVT:{
-			ESP_LOGI(GATTS_TABLE_TAG, "The number handle =%x\n",param->add_attr_tab.num_handle);
+			ESP_LOGI(BLE_TAG, "The number handle =%x",param->add_attr_tab.num_handle);
     	    if (param->add_attr_tab.status != ESP_GATT_OK){
-    	        ESP_LOGE(GATTS_TABLE_TAG, "Create attribute table failed, error code=0x%x", param->add_attr_tab.status);
+				ESP_LOGE(BLE_TAG, "Create attribute table failed, error code=0x%x", param->add_attr_tab.status);
     	    }
     	    else if (param->add_attr_tab.num_handle != SPP_IDX_NB){
-    	        ESP_LOGE(GATTS_TABLE_TAG, "Create attribute table abnormally, num_handle (%d) doesn't equal to HRS_IDX_NB(%d)", param->add_attr_tab.num_handle, SPP_IDX_NB);
+    	        ESP_LOGE(BLE_TAG, "Create attribute table abnormally, num_handle (%d) doesn't equal to HRS_IDX_NB(%d)", param->add_attr_tab.num_handle, SPP_IDX_NB);
     	    }
     	    else {
     	        memcpy(spp_handle_table, param->add_attr_tab.handles, sizeof(spp_handle_table));
@@ -618,14 +618,14 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
 
 static void gatts_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble_gatts_cb_param_t *param)
 {
-	ESP_LOGI(GATTS_TABLE_TAG, "EVT %d, gatts if %d\n", event, gatts_if);
+	ESP_LOGI(BLE_TAG, "EVT %d, gatts if %d", event, gatts_if);
 
     /* If event is register event, store the gatts_if for each profile */
     if (event == ESP_GATTS_REG_EVT) {
         if (param->reg.status == ESP_GATT_OK) {
             spp_profile_tab[SPP_PROFILE_APP_IDX].gatts_if = gatts_if;
         } else {
-			ESP_LOGI(GATTS_TABLE_TAG, "Reg app failed, app_id %04x, status %d\n",param->reg.app_id, param->reg.status);
+			ESP_LOGI(BLE_TAG, "Reg app failed, app_id %04x, status %d",param->reg.app_id, param->reg.status);
             return;
         }
     }
@@ -664,25 +664,25 @@ void ble_server_setup(ble_server_callbacks callbacks)
 
     ret = esp_bt_controller_init(&bt_cfg);
     if (ret) {
-        ESP_LOGE(GATTS_TABLE_TAG, "%s enable controller failed: %s\n", __func__, esp_err_to_name(ret));
+		ESP_LOGE(BLE_TAG, "%s enable controller failed: %s", __func__, esp_err_to_name(ret));
         return;
     }
 
     ret = esp_bt_controller_enable(ESP_BT_MODE_BLE);
-    if (ret) {
-        ESP_LOGE(GATTS_TABLE_TAG, "%s enable controller failed: %s\n", __func__, esp_err_to_name(ret));
+	if (ret) {
+		ESP_LOGE(BLE_TAG, "%s enable controller failed: %s", __func__, esp_err_to_name(ret));
         return;
     }
 
-    ESP_LOGI(GATTS_TABLE_TAG, "%s init bluetooth\n", __func__);
+	ESP_LOGI(BLE_TAG, "%s init bluetooth", __func__);
     ret = esp_bluedroid_init();
     if (ret) {
-        ESP_LOGE(GATTS_TABLE_TAG, "%s init bluetooth failed: %s\n", __func__, esp_err_to_name(ret));
+		ESP_LOGE(BLE_TAG, "%s init bluetooth failed: %s", __func__, esp_err_to_name(ret));
         return;
     }
 	ret = esp_bluedroid_enable();
     if (ret) {
-        ESP_LOGE(GATTS_TABLE_TAG, "%s enable bluetooth failed: %s\n", __func__, esp_err_to_name(ret));
+		ESP_LOGE(BLE_TAG, "%s enable bluetooth failed: %s", __func__, esp_err_to_name(ret));
         return;
     }
 
@@ -718,13 +718,13 @@ void ble_server_shutdown()
 	vSemaphoreDelete(ble_congested);
 }
 
-void ble_send(const void* src, size_t size) {
-	uint32_t time = (esp_timer_get_time() / 1000ULL) & 0xFFFFFFFF;
+void ble_send(uint32_t txID, uint32_t rxID, const void* src, size_t size)
+{
 	send_message_t msg;
 	msg.buffer = malloc(size);
 	msg.msg_length = size;
-	msg.rxID = (time >> 16) & 0xFFFF;
-	msg.txID = time & 0xFFFF;
+	msg.rxID = rxID;
+	msg.txID = txID;
 	memcpy(msg.buffer, src, size);
 	xQueueSend(spp_send_queue, &msg, 50 / portTICK_PERIOD_MS);
 }

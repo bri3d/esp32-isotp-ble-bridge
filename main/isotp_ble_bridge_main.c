@@ -12,59 +12,15 @@
 #include "isotp.h"
 #include "ble_server.h"
 #include "ws2812_control.h"
+#include "isotp_link_containers.h"
+#include "twai.h"
+#include "mutexes.h"
+#include "queues.h"
+#include "persist.h"
+#include "constants.h"
 
-/* --------------------- Definitions and static variables ------------------ */
-#define RX_TASK_PRIO 			 	3 // Ensure we drain the RX queue as quickly as we reasonably can to prevent overflow and ensure the message pump has fresh data.
-#define TX_TASK_PRIO 			 	3 // Ensure we TX messages as quickly as we reasonably can to meet ISO15765-2 timing constraints
-#define ISOTP_TSK_PRIO 				2 // Run the message pump at a higher priority than the main queue/dequeue task when messages are available
-#define MAIN_TSK_PRIO 				1 // Run the main task at the same priority as the BLE queue/dequeue tasks to help in delivery ordering.
-#define PERSIST_TSK_PRIO 			0
-#define TX_GPIO_NUM 				5 // For A0
-#define RX_GPIO_NUM 				4 // For A0
-#define SILENT_GPIO_NUM 			21 // For A0
-#define LED_ENABLE_GPIO_NUM 		13 // For A0
-#define LED_GPIO_NUM 				2 // For A0
-#define GPIO_OUTPUT_PIN_SEL(X)  	((1ULL<<X))
-#define ISOTP_BUFSIZE 				4096
-#define EXAMPLE_TAG 				"ISOTPtoBLE"
-#define MAX_MESSAGE_PERSIST			64
-#define PERSIST_MESSAGE_DELAY		2
+#define BRIDGE_TAG 					"Bridge"
 
-#define ISOTP_MAX_RECEIVE_PAYLOAD 	512
-#define SEND_IDENTIFIER 			0x7E0
-#define RECEIVE_IDENTIFIER 			0x7E8
-
-//Queue sizes
-#define TASK_QUEUE_SIZE     		32
-#define MESSAGE_QUEUE_SIZE			32
-
-static send_message_t msgPersist[MAX_MESSAGE_PERSIST];
-static uint16_t msgPersistCount = 0;
-static uint16_t msgPersistPosition = 0;
-static uint16_t msgPersistEnabled = false;
-
-// TWAI/CAN configuration
-static const twai_general_config_t g_config = TWAI_GENERAL_CONFIG_DEFAULT(TX_GPIO_NUM, RX_GPIO_NUM, TWAI_MODE_NORMAL);
-static const twai_timing_config_t t_config = TWAI_TIMING_CONFIG_500KBITS();
-static const twai_filter_config_t f_config = TWAI_FILTER_CONFIG_ACCEPT_ALL();
-
-// Mutable globals for semaphores, queues, ISO-TP link
-
-static QueueHandle_t tx_task_queue;
-static QueueHandle_t send_message_queue;
-static SemaphoreHandle_t isotp_task_sem;
-static SemaphoreHandle_t send_queue_start;
-static SemaphoreHandle_t done_sem;
-static SemaphoreHandle_t isotp_mutex;
-static SemaphoreHandle_t isotp_wait_for_data;
-static SemaphoreHandle_t persist_message_mutex;
-static SemaphoreHandle_t persist_message_send;
-
-static IsoTpLink isotp_link;
-
-/* Alloc ISO-TP send and receive buffer statically in RAM, required by library */
-static uint8_t isotp_recv_buf[ISOTP_BUFSIZE];
-static uint8_t isotp_send_buf[ISOTP_BUFSIZE];
 
 // LED colors
 static struct led_state red_led_state = {
@@ -80,7 +36,7 @@ static struct led_state green_led_state = {
 int isotp_user_send_can(const uint32_t arbitration_id, const uint8_t* data, const uint8_t size) {
     twai_message_t frame = {.identifier = arbitration_id, .data_length_code = size};
     memcpy(frame.data, data, sizeof(frame.data));
-    xQueueSend(tx_task_queue, &frame, portMAX_DELAY);
+	xQueueSend(tx_task_queue, &frame, portMAX_DELAY);
     return ISOTP_RET_OK;                           
 }
 
@@ -91,243 +47,88 @@ uint32_t isotp_user_get_ms(void) {
 void isotp_user_debug(const char* message, ...) {
 }
 
-/* --------------------------- Persist Functions -------------------------- */
-int16_t message_send()
-{
-	xSemaphoreTake(persist_message_mutex, pdMS_TO_TICKS(100));
-
-	//If be have been disconnected from BLE clear persist message
-	if(!ble_connected())
-	{
-		//clear messages
-		msgPersistEnabled = false;
-		for(int i=0; i<msgPersistCount; i++)
-		{
-			if(msgPersist[i].buffer)
-			{
-				free(msgPersist[i].buffer);
-				msgPersist[i].buffer = NULL;
-			}
-			msgPersist[i].msg_length = 0;
-		}
-		msgPersistPosition = 0;
-		msgPersistCount = 0;
-
-		xSemaphoreGive(persist_message_mutex);
-		return false;
-	}
-
-	//If persist mode is disabled abort
-	if(!msgPersistEnabled || !msgPersistCount)
-	{
-		xSemaphoreGive(persist_message_mutex);
-		return false;
-	}
-
-	//don't flood the queues
-	if(uxQueueMessagesWaiting(send_message_queue) || !ble_queue_spaces())
-	{
-		xSemaphoreGive(persist_message_mutex);
-		return false;
-	}
-
-	//Cycle through messages
-	if(msgPersistPosition >= msgPersistCount)
-		msgPersistPosition = 0;
-
-	//Make sure the message has length
-	uint16_t mPos = msgPersistPosition++;
-	send_message_t* pMsg = &msgPersist[mPos];
-	if(pMsg->msg_length == 0)
-	{
-		xSemaphoreGive(persist_message_mutex);
-		return false;
-	}
-
-	//We are good, lets send the message!
-	send_message_t msg;
-	msg.buffer = malloc(pMsg->msg_length);
-	memcpy(msg.buffer, pMsg->buffer, pMsg->msg_length);
-	msg.msg_length = pMsg->msg_length;
-
-	xQueueSend(send_message_queue, &msg, pdMS_TO_TICKS(50));
-
-	ESP_LOGI(EXAMPLE_TAG, "Persistent message sent [%04X]", msg.msg_length);
-	xSemaphoreGive(persist_message_mutex);
-
-	return true;
-}
-
-uint16_t message_enabled()
-{
-	xSemaphoreTake(persist_message_mutex, pdMS_TO_TICKS(100));
-	uint16_t isEnabled = msgPersistEnabled;
-	xSemaphoreGive(persist_message_mutex);
-
-	return isEnabled;
-}
-
-void message_set(uint16_t enable)
-{
-	xSemaphoreTake(persist_message_mutex, pdMS_TO_TICKS(100));
-	msgPersistEnabled = enable;
-	xSemaphoreGive(persist_message_mutex);
-	ESP_LOGI(EXAMPLE_TAG, "Persistent messages: %d", enable);
-}
-
-int16_t message_add(const void* src, size_t size)
-{
-	if(!src || size == 0)
-		return false;
-
-	xSemaphoreTake(persist_message_mutex, pdMS_TO_TICKS(100));
-
-	if(msgPersistCount >= MAX_MESSAGE_PERSIST)
-	{
-		xSemaphoreGive(persist_message_mutex);
-		return false;
-	}
-
-	send_message_t* pMsg = &msgPersist[msgPersistCount++];
-	pMsg->buffer = malloc(size);
-	memcpy(pMsg->buffer, src, size);
-	pMsg->msg_length = size;
-	xSemaphoreGive(persist_message_mutex);
-
-	ESP_LOGI(EXAMPLE_TAG, "Persistent message added [%04X]", size);
-
-	return true;
-}
-
-void message_clear()
-{
-	xSemaphoreTake(persist_message_mutex, pdMS_TO_TICKS(100));
-	msgPersistEnabled = false;
-	for(int i=0; i<msgPersistCount; i++)
-	{
-		if(msgPersist[i].buffer)
-		{
-			free(msgPersist[i].buffer);
-			msgPersist[i].buffer = NULL;
-		}
-		msgPersist[i].msg_length = 0;
-	}
-	msgPersistPosition = 0;
-	msgPersistCount = 0;
-	xSemaphoreGive(persist_message_mutex);
-
-	ESP_LOGI(EXAMPLE_TAG, "Persistent messages cleared");
-}
-
-
 /* --------------------------- Tasks and Functions -------------------------- */
-
-static void twai_receive_task(void *arg)
-{
-    while (1)
-    {
-        twai_message_t rx_msg;
-        twai_receive(&rx_msg, portMAX_DELAY); // If no message available, should block and yield.
-        if(rx_msg.identifier == RECEIVE_IDENTIFIER) {
-            ESP_LOGD(EXAMPLE_TAG, "Received Message with identifier %08X and length %08X", rx_msg.identifier, rx_msg.data_length_code);
-            for (int i = 0; i < rx_msg.data_length_code; i++)
-                ESP_LOGD(EXAMPLE_TAG, "RX Data: %02X", rx_msg.data[i]);
-            xSemaphoreTake(isotp_mutex, (TickType_t)100);
-            isotp_on_can_message(&isotp_link, rx_msg.data, rx_msg.data_length_code);
-            xSemaphoreGive(isotp_mutex);
-            xSemaphoreGive(isotp_wait_for_data);
-        }
-    }
-    vTaskDelete(NULL);
-}
-
-static void twai_transmit_task(void *arg)
-{
-    while (1)
-    {
-        twai_message_t tx_msg;
-        xQueueReceive(tx_task_queue, &tx_msg, portMAX_DELAY);
-        ESP_LOGD(EXAMPLE_TAG, "Sending Message with ID %08X", tx_msg.identifier);
-        for (int i = 0; i < tx_msg.data_length_code; i++)
-            ESP_LOGD(EXAMPLE_TAG, "TX Data: %02X", tx_msg.data[i]);
-        twai_transmit(&tx_msg, portMAX_DELAY);
-    }
-    vTaskDelete(NULL);
-}
 
 static void isotp_processing_task(void *arg)
 {
-    xSemaphoreTake(isotp_task_sem, portMAX_DELAY);
-    ESP_ERROR_CHECK(twai_start());
-    ESP_LOGI(EXAMPLE_TAG, "CAN/TWAI Driver started");
-    isotp_init_link(&isotp_link, SEND_IDENTIFIER,
-						isotp_send_buf, sizeof(isotp_send_buf), 
-						isotp_recv_buf, sizeof(isotp_recv_buf));
-    ESP_LOGI(EXAMPLE_TAG, "ISO-TP Handler started");
-
-    xSemaphoreGive(send_queue_start);
-
+    IsoTpLinkContainer *isotp_link_container = (IsoTpLinkContainer*)arg;
+    IsoTpLink *link_ptr = &isotp_link_container->link;;
+	uint8_t *payload_buf = isotp_link_container->payload_buf;
     while (1)
     {
-        if(isotp_link.send_status != ISOTP_SEND_STATUS_INPROGRESS && isotp_link.receive_status != ISOTP_RECEIVE_STATUS_INPROGRESS) {
-            // Link is idle, wait for new data before pumping loop. 
-            xSemaphoreTake(isotp_wait_for_data, portMAX_DELAY);
+        if (link_ptr->send_status != ISOTP_SEND_STATUS_INPROGRESS &&
+            link_ptr->receive_status != ISOTP_RECEIVE_STATUS_INPROGRESS)
+        {
+            // Link is idle, wait for new data before pumping loop.
+			xSemaphoreTake(isotp_link_container->wait_for_isotp_data_sem, portMAX_DELAY);
         }
-		xSemaphoreTake(isotp_mutex, (TickType_t)100);
-        isotp_poll(&isotp_link);
+        // poll
+		xSemaphoreTake(isotp_mutex, pdMS_TO_TICKS(TIMEOUT_NORMAL));
+        isotp_poll(link_ptr);
         xSemaphoreGive(isotp_mutex);
+        // receive
+		xSemaphoreTake(isotp_mutex, pdMS_TO_TICKS(TIMEOUT_NORMAL));
         uint16_t out_size;
-        uint8_t payload[ISOTP_MAX_RECEIVE_PAYLOAD];
-        xSemaphoreTake(isotp_mutex, (TickType_t)100);
-        int ret = isotp_receive(&isotp_link, payload, sizeof(payload), &out_size);
-		xSemaphoreGive(isotp_mutex);
+        int ret = isotp_receive(link_ptr, payload_buf, ISOTP_BUFSIZE, &out_size);
+        xSemaphoreGive(isotp_mutex);
+        // if it is time to send fully received + parsed ISO-TP data over BLE and/or websocket
         if (ISOTP_RET_OK == ret) {
-			ESP_LOGD(EXAMPLE_TAG, "Received ISO-TP message with length: %04X", out_size);
-			for(int i = 0; i < out_size; i++)
-				ESP_LOGD(EXAMPLE_TAG, "ISO-TP data %c", payload[i]);
-			ble_send(payload, out_size);
+			ESP_LOGI(BRIDGE_TAG, "Received ISO-TP message with length: %04X", out_size);
+            for (int i = 0; i < out_size; i++) {
+                ESP_LOGD(BRIDGE_TAG, "payload_buf[%d] = %02x", i, payload_buf[i]);
+			}
 
-			//if persist is enabled
-			if(message_enabled())
+			//Are we in persist mode?
+			if(persist_enabled())
+			{
+				//send time stamp instead of rx/tx
+				uint32_t time = isotp_user_get_ms();
+				uint16_t rxID = (time >> 16) & 0xFFFF;
+				uint16_t txID = time & 0xFFFF;
+				ble_send(rxID, txID, payload_buf, out_size);
 				xSemaphoreGive(persist_message_send);
-		}
-		vTaskDelay(0); // Allow higher priority tasks to run, for example Rx/Tx
-    }
+			} else {
+				ble_send(link_ptr->receive_arbitration_id, link_ptr->send_arbitration_id, payload_buf, out_size);
+			}
 
+        }
+        vTaskDelay(0); // Allow higher priority tasks to run, for example Rx/Tx
+    }
     vTaskDelete(NULL);
 }
 
-static void persist_task(void *arg)
+static void isotp_send_queue_task(void *arg)
 {
-	while(1) {
-		xSemaphoreTake(persist_message_send, pdMS_TO_TICKS(50));
-		message_send();
-		vTaskDelay(pdMS_TO_TICKS((SEND_QUEUE_SIZE-ble_queue_spaces())*PERSIST_MESSAGE_DELAY));
-	}
-	vTaskDelete(NULL);
-}
-
-static void send_queue_task(void *arg)
-{
-	xSemaphoreTake(send_queue_start, portMAX_DELAY);
+    xSemaphoreTake(isotp_send_queue_sem, portMAX_DELAY);
     while (1)
     {
         twai_status_info_t status_info;
         twai_get_status_info(&status_info);
-        if (status_info.state == TWAI_STATE_BUS_OFF) {
+        if (status_info.state == TWAI_STATE_BUS_OFF)
+        {
             twai_initiate_recovery();
-        } else if (status_info.state == TWAI_STATE_STOPPED) {
+        }
+        else if (status_info.state == TWAI_STATE_STOPPED)
+        {
             twai_start();
         }
         send_message_t msg;
-		xQueueReceive(send_message_queue, &msg, portMAX_DELAY);
-        xSemaphoreTake(isotp_mutex, (TickType_t)100);
-        isotp_send(&isotp_link, msg.buffer, msg.msg_length);
-        xSemaphoreGive(isotp_mutex);
-		xSemaphoreGive(isotp_wait_for_data);
+		xQueueReceive(isotp_send_message_queue, &msg, portMAX_DELAY);
+		xSemaphoreTake(isotp_mutex, pdMS_TO_TICKS(TIMEOUT_NORMAL));
+		ESP_LOGI(BRIDGE_TAG, "isotp_send_queue_task: sending message with %d size (rx id: %04x / tx id: %04x)", msg.msg_length, msg.rxID, msg.txID);
+		for (int i = 0; i < NUM_ISOTP_LINK_CONTAINERS; ++i) {
+			IsoTpLinkContainer *isotp_link_container = &isotp_link_containers[i];
+			if(msg.txID == isotp_link_container->link.receive_arbitration_id) {
+				ESP_LOGI(BRIDGE_TAG, "match %04x", msg.txID);
+				isotp_send(&isotp_link_container->link, msg.buffer, msg.msg_length);
+				xSemaphoreGive(isotp_mutex);
+				xSemaphoreGive(isotp_link_container->wait_for_isotp_data_sem);
+				break;
+            }
+		}
         free(msg.buffer);
-    }
-	vTaskDelete(NULL);
+	}
+    vTaskDelete(NULL);
 }
 
 /* ----------- BLE callbacks ---------------- */
@@ -337,7 +138,7 @@ void received_from_ble(const void* src, size_t size)
 	//store current data pointer
 	uint8_t* data = (uint8_t*)src;
 
-	ESP_LOGD(EXAMPLE_TAG, "BLE packet size [%d]", size);
+	ESP_LOGD(BRIDGE_TAG, "BLE packet size [%d]", size);
 
 	//If the packet does not contain header abort
 	while(size >= sizeof(ble_header_t))
@@ -346,33 +147,33 @@ void received_from_ble(const void* src, size_t size)
 		ble_header_t* header = (ble_header_t*)data;
 		if(header->hdID != BLE_HEADER_ID)
 		{
-			ESP_LOGI(EXAMPLE_TAG, "BLE packet header does not match [%02X, %02X]", header->hdID, BLE_HEADER_ID);
+			ESP_LOGI(BRIDGE_TAG, "BLE packet header does not match [%02X, %02X]", header->hdID, BLE_HEADER_ID);
 			return;
 		}
 
-		ESP_LOGD(EXAMPLE_TAG, "BLE header [%02X, %02X, %04X, %04X, %04X]", header->hdID, header->cmdFlags, header->rxID, header->txID, header->cmdSize);
+		ESP_LOGD(BRIDGE_TAG, "BLE header [%02X, %02X, %04X, %04X, %04X]", header->hdID, header->cmdFlags, header->rxID, header->txID, header->cmdSize);
 
 		data += sizeof(ble_header_t);
 		size -= sizeof(ble_header_t);
 		if(header->cmdSize > size)
 		{
-			ESP_LOGI(EXAMPLE_TAG, "BLE command size is larger than packet size [%d, %d]", header->cmdSize, size);
+			ESP_LOGI(BRIDGE_TAG, "BLE command size is larger than packet size [%d, %d]", header->cmdSize, size);
 			return;
 		}
 
 		//Are we in persistent mode?
-		if(message_enabled())
+		if(persist_enabled())
 		{
 			//Should we clear the persist messages in memory?
 			if(header->cmdFlags & BLE_COMMAND_FLAG_PER_CLEAR)
 			{
-				message_clear();
+				persist_clear();
 			}
 
 			//Should we disable persist mode?
 			if((header->cmdFlags & BLE_COMMAND_FLAG_PER_ENABLE) == 0)
 			{
-				message_set(false);
+				persist_set(false);
 			} else {
 				//If we are still in persist mode quit
 				return;
@@ -381,31 +182,35 @@ void received_from_ble(const void* src, size_t size)
 		{ 	//Not in persistent mode
 			if(header->cmdFlags & BLE_COMMAND_FLAG_PER_CLEAR)
 			{
-				message_clear();
+				persist_clear();
 			}
 
 			if(header->cmdFlags & BLE_COMMAND_FLAG_PER_ADD)
 			{
-				message_add(data, header->cmdSize);
+				persist_add(data, header->cmdSize);
 			}
 
 			if(header->cmdFlags & BLE_COMMAND_FLAG_PER_ENABLE)
 			{
-				message_set(true);
+				persist_set(true);
 				return;
 			}
 		}
 
 		if(header->cmdSize)
 		{
-			if(!message_enabled())
+			if(!persist_enabled())
 			{
-				ESP_LOGI(EXAMPLE_TAG, "Received message [%04X]", header->cmdSize);
+				ESP_LOGI(BRIDGE_TAG, "Received message [%04X]", header->cmdSize);
+
 				send_message_t msg;
+				msg.msg_length = header->cmdSize;
+				msg.rxID = header->rxID;
+				msg.txID = header->txID;
 				msg.buffer = malloc(header->cmdSize);
 				memcpy(msg.buffer, data, header->cmdSize);
-				msg.msg_length = header->cmdSize;
-				xQueueSend(send_message_queue, &msg, pdMS_TO_TICKS(50));
+
+				xQueueSend(isotp_send_message_queue, &msg, pdMS_TO_TICKS(TIMEOUT_NORMAL));
 			}
 
 			data += header->cmdSize;
@@ -422,9 +227,7 @@ void notifications_enabled() {
 	ws2812_write_leds(green_led_state);
 }
 
-
 /* ------------ Primary startup ---------------- */
-
 void app_main(void)
 {
 	// Configure LED enable pin (switches transistor to push LED)
@@ -441,8 +244,7 @@ void app_main(void)
     ws2812_control_init(LED_GPIO_NUM);
     ws2812_write_leds(red_led_state);
 
-    // Setup BLE server
-
+	// Setup BLE server
     ble_server_callbacks callbacks = {
         .data_received = received_from_ble,
         .notifications_subscribed = notifications_enabled,
@@ -460,20 +262,18 @@ void app_main(void)
     gpio_config(&io_conf);
     gpio_set_level(SILENT_GPIO_NUM, 0);
 
-    // "TWAI" is knockoff CAN. Install TWAI driver.
-    ESP_ERROR_CHECK(twai_driver_install(&g_config, &t_config, &f_config));
-    ESP_LOGI(EXAMPLE_TAG, "CAN/TWAI Driver installed");
+	//init twai can controller
+	twai_install();
 
     //Create semaphores and tasks
 	tx_task_queue = xQueueCreate(TASK_QUEUE_SIZE, sizeof(twai_message_t));
-	send_message_queue = xQueueCreate(MESSAGE_QUEUE_SIZE, sizeof(send_message_t));
-    isotp_task_sem = xSemaphoreCreateBinary();
-    done_sem = xSemaphoreCreateBinary();
-    send_queue_start = xSemaphoreCreateBinary();
-    isotp_wait_for_data = xSemaphoreCreateBinary();
+	isotp_send_message_queue = xQueueCreate(MESSAGE_QUEUE_SIZE, sizeof(send_message_t));
+	done_sem = xSemaphoreCreateBinary();
+	isotp_send_queue_sem = xSemaphoreCreateBinary();
 	isotp_mutex = xSemaphoreCreateMutex();
-	persist_message_mutex = xSemaphoreCreateMutex();
-	persist_message_send = xSemaphoreCreateBinary();
+	configure_isotp_links();
+	persist_start();
+	xSemaphoreGive(isotp_send_queue_sem);
 
     // Tasks :
     // "TWAI_rx" polls the receive queue (blocking) and once a message exists, forwards it into the ISO-TP library.
@@ -482,26 +282,26 @@ void app_main(void)
     // ISOTP_process also polls the ISOTP library's non-blocking receive method, which will produce a message if one is ready.
     // "MAIN_process_send_queue" processes queued messages from the BLE stack. These messages are dynamically allocated when they are queued and freed in this task. 
 
-    xTaskCreatePinnedToCore(twai_receive_task, "TWAI_rx", 4096, NULL, RX_TASK_PRIO, NULL, tskNO_AFFINITY);
-    xTaskCreatePinnedToCore(twai_transmit_task, "TWAI_tx", 4096, NULL, TX_TASK_PRIO, NULL, tskNO_AFFINITY);
-    xTaskCreatePinnedToCore(isotp_processing_task, "ISOTP_process", 4096, NULL, ISOTP_TSK_PRIO, NULL, tskNO_AFFINITY);
-	xTaskCreatePinnedToCore(send_queue_task, "MAIN_process_send_queue", 4096, NULL, MAIN_TSK_PRIO, NULL, tskNO_AFFINITY);
+	xTaskCreatePinnedToCore(twai_receive_task, "TWAI_rx", 4096, NULL, RX_TASK_PRIO, NULL, tskNO_AFFINITY);
+	xTaskCreatePinnedToCore(twai_transmit_task, "TWAI_tx", 4096, NULL, TX_TASK_PRIO, NULL, tskNO_AFFINITY);
+	xTaskCreatePinnedToCore(isotp_processing_task, "ecu_ISOTP_process", 4096, &isotp_link_containers[0], ISOTP_TSK_PRIO, NULL, tskNO_AFFINITY);
+    xTaskCreatePinnedToCore(isotp_processing_task, "tcu_ISOTP_process", 4096, &isotp_link_containers[1], ISOTP_TSK_PRIO, NULL, tskNO_AFFINITY);
+    xTaskCreatePinnedToCore(isotp_processing_task, "ptcu_ISOTP_process", 4096, &isotp_link_containers[2], ISOTP_TSK_PRIO, NULL, tskNO_AFFINITY);
+	xTaskCreatePinnedToCore(isotp_processing_task, "gateway_ISOTP_process", 4096, &isotp_link_containers[3], ISOTP_TSK_PRIO, NULL, tskNO_AFFINITY);
+	xTaskCreatePinnedToCore(isotp_processing_task, "dtc_ISOTP_process", 4096, &isotp_link_containers[4], ISOTP_TSK_PRIO, NULL, tskNO_AFFINITY);
+	xTaskCreatePinnedToCore(isotp_send_queue_task, "ISOTP_process_send_queue", 4096, NULL, MAIN_TSK_PRIO, NULL, tskNO_AFFINITY);
 	xTaskCreatePinnedToCore(persist_task, "PERSIST_process", 4096, NULL, PERSIST_TSK_PRIO, NULL, tskNO_AFFINITY);
 
-	xSemaphoreGive(isotp_task_sem); //Start Control task
-    xSemaphoreTake(done_sem, portMAX_DELAY);
+	xSemaphoreTake(done_sem, portMAX_DELAY);
 
-    ESP_ERROR_CHECK(twai_driver_uninstall());
-	ESP_LOGI(EXAMPLE_TAG, "Driver uninstalled");
-
+	persist_stop();
 	ble_server_shutdown();
+	twai_uninstall();
+	disable_isotp_links();
 
-	vSemaphoreDelete(persist_message_send);
-	vSemaphoreDelete(isotp_task_sem);
-	vSemaphoreDelete(send_queue_start);
+	vSemaphoreDelete(isotp_send_queue_sem);
     vSemaphoreDelete(done_sem);
 	vSemaphoreDelete(isotp_mutex);
-	vSemaphoreDelete(persist_message_mutex);
     vQueueDelete(tx_task_queue);
-    vQueueDelete(send_message_queue);
+    vQueueDelete(isotp_send_message_queue);
 }

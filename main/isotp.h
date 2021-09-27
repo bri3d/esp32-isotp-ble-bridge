@@ -20,6 +20,10 @@ extern "C" {
  * using this library.
  */
 typedef struct IsoTpLink {
+    /* separation time */
+    uint8_t st_min;
+    /* block size */
+    uint8_t default_block_size;
     /* sender paramters */
     uint32_t                    send_arbitration_id; /* used to reply consecutive frame */
     /* message buffer */
@@ -60,15 +64,14 @@ typedef struct IsoTpLink {
  * @brief Initialises the ISO-TP library.
  *
  * @param link The @code IsoTpLink @endcode instance used for transceiving data.
- * @param sendid The ID used to send data to other CAN nodes.
+ * @param tx_id The ID used to send data to other CAN nodes.
+ * @param rx_id The ID used to receive data to other CAN nodes.
  * @param sendbuf A pointer to an area in memory which can be used as a buffer for data to be sent.
  * @param sendbufsize The size of the buffer area.
  * @param recvbuf A pointer to an area in memory which can be used as a buffer for data to be received.
  * @param recvbufsize The size of the buffer area.
  */
-void isotp_init_link(IsoTpLink *link, uint32_t sendid, 
-                     uint8_t *sendbuf, uint16_t sendbufsize,
-                     uint8_t *recvbuf, uint16_t recvbufsize);
+void isotp_init_link(IsoTpLink *link, uint32_t tx_id, uint32_t rx_id, uint8_t *sendbuf, uint16_t sendbufsize, uint8_t *recvbuf, uint16_t recvbufsize);
 
 /**
  * @brief Polling function; call this function periodically to handle timeouts, send consecutive frames, etc.
