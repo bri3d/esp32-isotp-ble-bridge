@@ -11,25 +11,15 @@
 #include "soc/dport_reg.h"
 #include "isotp.h"
 #include "ble_server.h"
-#include "ws2812_control.h"
 #include "isotp_link_containers.h"
 #include "twai.h"
 #include "mutexes.h"
 #include "queues.h"
 #include "persist.h"
 #include "constants.h"
+#include "led.h"
 
 #define BRIDGE_TAG 					"Bridge"
-
-
-// LED colors
-static struct led_state red_led_state = {
-    .leds[0] = 0x008000
-};
-
-static struct led_state green_led_state = {
-    .leds[0] = 0x800000
-};
 
 /* ---------------------------- ISOTP Callbacks ---------------------------- */
 
@@ -220,11 +210,11 @@ void received_from_ble(const void* src, size_t size)
 }
 
 void notifications_disabled() {
-	ws2812_write_leds(red_led_state);
+	led_setcolor(LED_RED_HALF, LED_RED_HALF, 1000, 1);
 }
 
 void notifications_enabled() {
-	ws2812_write_leds(green_led_state);
+	led_setcolor(LED_GREEN_HALF, LED_GREEN_HALF, 1000, 1);
 }
 
 /* ------------ Primary startup ---------------- */
@@ -240,9 +230,8 @@ void app_main(void)
 	gpio_config(&io_conf_led);
 	gpio_set_level(LED_ENABLE_GPIO_NUM, 0);
 
-    // Configure LED to Red
-    ws2812_control_init(LED_GPIO_NUM);
-    ws2812_write_leds(red_led_state);
+	//start LED handling service
+	led_start();
 
 	// Setup BLE server
     ble_server_callbacks callbacks = {
@@ -298,6 +287,7 @@ void app_main(void)
 	ble_server_shutdown();
 	twai_uninstall();
 	disable_isotp_links();
+	led_stop();
 
 	vSemaphoreDelete(isotp_send_queue_sem);
     vSemaphoreDelete(done_sem);
