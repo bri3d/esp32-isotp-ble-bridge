@@ -37,14 +37,14 @@ static struct led_state led_state = {
 
 void set_color(int16_t position)
 {
-	/*int8_t r = led_color_from_r - (led_color_add_r * position / led_position_end);
+	int8_t r = led_color_from_r - (led_color_add_r * position / led_position_end);
 	int8_t g = led_color_from_g - (led_color_add_g * position / led_position_end);
 	int8_t b = led_color_from_b - (led_color_add_b * position / led_position_end);
 
 	uint32_t color = ((g & 0xFF) << 16) + ((r & 0xFF) << 8) + (b & 0xFF);
 
 	led_state.leds[0] = color;
-	ws2812_write_leds(led_state);  */
+	ws2812_write_leds(led_state);
 }
 
 void led_task(void *arg)
@@ -78,9 +78,9 @@ void led_start()
 	led_setcolor(LED_RED, LED_RED, 1000, 1);
 
 	//Start led task
-	led_kill = false;
-	led_mutex = xSemaphoreCreateMutex();
-	xTaskCreatePinnedToCore(led_task, "LED_process", 4096, NULL, LED_TSK_PRIO, NULL, tskNO_AFFINITY);
+	//led_kill = false;
+	//led_mutex = xSemaphoreCreateMutex();
+	//xTaskCreatePinnedToCore(led_task, "LED_process", 4096, NULL, LED_TSK_PRIO, NULL, tskNO_AFFINITY);
 }
 
 void led_stop()
@@ -90,8 +90,8 @@ void led_stop()
 
 void led_setcolor(int32_t from, int32_t to, int16_t delay, int16_t positions)
 {
-	xSemaphoreTake(led_mutex, pdMS_TO_TICKS(TIMEOUT_SHORT));
-	/*led_delay = delay;
+	//xSemaphoreTake(led_mutex, pdMS_TO_TICKS(TIMEOUT_SHORT));
+	led_delay = delay;
 	if(led_delay > LED_MAX_DELAY)
 		led_delay = LED_MAX_DELAY;
 	if(led_delay < LED_MIN_DELAY)
@@ -112,6 +112,6 @@ void led_setcolor(int32_t from, int32_t to, int16_t delay, int16_t positions)
 	led_color_add_g = ((from & 0xFF0000) >> 16) - ((to & 0xFF0000) >> 16);
 	led_color_add_b = (from & 0xFF) - (to & 0xFF);
 
-	set_color(0);   */
-	xSemaphoreGive(led_mutex);
+	set_color(0);
+	//xSemaphoreGive(led_mutex);
 }
