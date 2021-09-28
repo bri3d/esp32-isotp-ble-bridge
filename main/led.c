@@ -16,7 +16,7 @@
 #define LED_MAX_POSITION	1000
 #define LED_TSK_PRIO      	0
 
-//SemaphoreHandle_t led_mutex = NULL;
+SemaphoreHandle_t led_mutex = NULL;
 int32_t led_position 		= 0;
 int32_t led_position_end 	= LED_MAX_POSITION;
 int32_t led_direction  		= 1;
@@ -28,7 +28,7 @@ int32_t led_color_add_g		= 0;
 int32_t led_color_add_b		= 0;
 
 // LED colors
-static struct led_state led_state = {
+struct led_state led_state = {
 	.leds[0] = 0x008000
 };
 
@@ -47,7 +47,7 @@ void set_color(int16_t position)
 void led_task(void *arg)
 {
 	while(1) {
-		//xSemaphoreTake(led_mutex, pdMS_TO_TICKS(TIMEOUT_SHORT));
+		xSemaphoreTake(led_mutex, pdMS_TO_TICKS(TIMEOUT_SHORT));
 		if(led_position_end > 1) {
 			if(++led_position >= led_position_end) {
 				led_position = 0;
@@ -55,7 +55,7 @@ void led_task(void *arg)
 			}
 			set_color(led_direction%2?led_position:led_position_end-led_position);
 		}
-		//xSemaphoreGive(led_mutex);
+		xSemaphoreGive(led_mutex);
 		vTaskDelay(pdMS_TO_TICKS(LED_DELAY));
 	}
 	vTaskDelete(NULL);
@@ -63,15 +63,25 @@ void led_task(void *arg)
 
 void led_start()
 {
-	//if(led_mutex)
-	//	return;
+	if(led_mutex)
+		return;
+
+	// Configure LED enable pin (switches transistor to push LED)
+	gpio_config_t io_conf_led;
+	io_conf_led.intr_type = GPIO_INTR_DISABLE;
+	io_conf_led.mode = GPIO_MODE_OUTPUT;
+	io_conf_led.pin_bit_mask = GPIO_OUTPUT_PIN_SEL(LED_ENABLE_GPIO_NUM);
+	io_conf_led.pull_down_en = 0;
+	io_conf_led.pull_up_en = 0;
+	gpio_config(&io_conf_led);
+	gpio_set_level(LED_ENABLE_GPIO_NUM, 0);
 
 	// Configure LED to Red
 	ws2812_control_init(LED_GPIO_NUM);
 	led_setcolor(LED_RED, LED_RED, 1);
 
 	//Start led task
-	//led_mutex = xSemaphoreCreateMutex();
+	led_mutex = xSemaphoreCreateMutex();
 	xTaskCreatePinnedToCore(led_task, "LED_process", 4096, NULL, LED_TSK_PRIO, NULL, tskNO_AFFINITY);
 }
 
@@ -82,7 +92,7 @@ void led_stop()
 
 void led_setcolor(int32_t from, int32_t to, int16_t positions)
 {
-	//xSemaphoreTake(led_mutex, pdMS_TO_TICKS(TIMEOUT_SHORT));
+	xSemaphoreTake(led_mutex, pdMS_TO_TICKS(TIMEOUT_SHORT));
 	led_position_end = positions;
 	if(led_position_end > LED_MAX_POSITION)
 		led_position_end = LED_MAX_POSITION;
@@ -98,6 +108,7 @@ void led_setcolor(int32_t from, int32_t to, int16_t positions)
 	led_color_add_g = ((from & 0xFF0000) >> 16) - ((to & 0xFF0000) >> 16);
 	led_color_add_b = (from & 0xFF) - (to & 0xFF);
 
-	set_color(0);
-	//xSemaphoreGive(led_mutex);
+	led_state.leds[0] = from;
+	ws2812_write_leds(led_state);
+	xSemaphoreGive(led_mutex);
 }

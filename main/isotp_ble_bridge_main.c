@@ -220,16 +220,6 @@ void notifications_enabled() {
 /* ------------ Primary startup ---------------- */
 void app_main(void)
 {
-	// Configure LED enable pin (switches transistor to push LED)
-	gpio_config_t io_conf_led;
-	io_conf_led.intr_type = GPIO_INTR_DISABLE;
-	io_conf_led.mode = GPIO_MODE_OUTPUT;
-	io_conf_led.pin_bit_mask = GPIO_OUTPUT_PIN_SEL(LED_ENABLE_GPIO_NUM);
-	io_conf_led.pull_down_en = 0;
-	io_conf_led.pull_up_en = 0;
-	gpio_config(&io_conf_led);
-	gpio_set_level(LED_ENABLE_GPIO_NUM, 0);
-
 	//start LED handling service
 	led_start();
 
