@@ -231,7 +231,7 @@ void app_main(void)
 	gpio_set_level(LED_ENABLE_GPIO_NUM, 0);
 
 	//start LED handling service
-	//led_start();
+	led_start();
 
 	// Setup BLE server
     ble_server_callbacks callbacks = {

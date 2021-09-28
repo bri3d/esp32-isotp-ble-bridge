@@ -49,7 +49,10 @@ void set_color(int16_t position)
 
 void led_task(void *arg)
 {
-	while(led_kill == false) {
+	while() {
+		if(led_kill == false)
+			break;
+
 		xSemaphoreTake(led_mutex, pdMS_TO_TICKS(TIMEOUT_SHORT));
 		if(++led_position >= led_position_end) {
 			led_position = 0;
@@ -88,7 +91,7 @@ void led_stop()
 void led_setcolor(int32_t from, int32_t to, int16_t delay, int16_t positions)
 {
 	xSemaphoreTake(led_mutex, pdMS_TO_TICKS(TIMEOUT_SHORT));
-	led_delay = delay;
+	/*led_delay = delay;
 	if(led_delay > LED_MAX_DELAY)
 		led_delay = LED_MAX_DELAY;
 	if(led_delay < LED_MIN_DELAY)
@@ -109,6 +112,6 @@ void led_setcolor(int32_t from, int32_t to, int16_t delay, int16_t positions)
 	led_color_add_g = ((from & 0xFF0000) >> 16) - ((to & 0xFF0000) >> 16);
 	led_color_add_b = (from & 0xFF) - (to & 0xFF);
 
-	set_color(0);
+	set_color(0);   */
 	xSemaphoreGive(led_mutex);
 }

@@ -427,7 +427,7 @@ void send_task(void *pvParameters)
 							data_chunk[1] = chunk_num++;
 							memcpy(data_chunk + 2, data + data_pos, data_len);
 							data_pos += data_len;
-							esp_ble_gatts_send_indicate(spp_gatts_if, spp_conn_id, spp_handle_table[SPP_IDX_SPP_DATA_NTY_VAL], data_len, data_chunk, false);
+							esp_ble_gatts_send_indicate(spp_gatts_if, spp_conn_id, spp_handle_table[SPP_IDX_SPP_DATA_NTY_VAL], data_len + 2, data_chunk, false);
 						}
 						free(data_chunk);
 					}
