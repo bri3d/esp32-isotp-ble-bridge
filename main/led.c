@@ -37,19 +37,19 @@ static struct led_state led_state = {
 
 void set_color(int16_t position)
 {
-	int8_t r = led_color_from_r - (led_color_add_r * position / led_position_end);
+	/*int8_t r = led_color_from_r - (led_color_add_r * position / led_position_end);
 	int8_t g = led_color_from_g - (led_color_add_g * position / led_position_end);
 	int8_t b = led_color_from_b - (led_color_add_b * position / led_position_end);
 
 	uint32_t color = ((g & 0xFF) << 16) + ((r & 0xFF) << 8) + (b & 0xFF);
 
 	led_state.leds[0] = color;
-	ws2812_write_leds(led_state);
+	ws2812_write_leds(led_state);  */
 }
 
 void led_task(void *arg)
 {
-	while() {
+	while(1) {
 		if(led_kill == false)
 			break;
 
