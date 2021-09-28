@@ -32,7 +32,7 @@ struct led_state led_state = {
 	.leds[0] = 0x008000
 };
 
-void set_color(int16_t position)
+/*void set_color(int16_t position)
 {
 	int8_t r = led_color_from_r - (led_color_add_r * position / led_position_end);
 	int8_t g = led_color_from_g - (led_color_add_g * position / led_position_end);
@@ -42,9 +42,9 @@ void set_color(int16_t position)
 
 	led_state.leds[0] = color;
 	ws2812_write_leds(led_state);
-}
+}       */
 
-void led_task(void *arg)
+/*void led_task(void *arg)
 {
 	while(1) {
 		xSemaphoreTake(led_mutex, pdMS_TO_TICKS(TIMEOUT_SHORT));
@@ -59,12 +59,12 @@ void led_task(void *arg)
 		vTaskDelay(pdMS_TO_TICKS(LED_DELAY));
 	}
 	vTaskDelete(NULL);
-}
+}    */
 
 void led_start()
 {
-	if(led_mutex)
-		return;
+	//if(led_mutex)
+	//	return;
 
 	// Configure LED enable pin (switches transistor to push LED)
 	gpio_config_t io_conf_led;
@@ -81,8 +81,8 @@ void led_start()
 	led_setcolor(LED_RED, LED_RED, 1);
 
 	//Start led task
-	led_mutex = xSemaphoreCreateMutex();
-	xTaskCreatePinnedToCore(led_task, "LED_process", 4096, NULL, LED_TSK_PRIO, NULL, tskNO_AFFINITY);
+	/*led_mutex = xSemaphoreCreateMutex();
+	xTaskCreatePinnedToCore(led_task, "LED_process", 4096, NULL, LED_TSK_PRIO, NULL, tskNO_AFFINITY); */
 }
 
 void led_stop()
@@ -92,8 +92,8 @@ void led_stop()
 
 void led_setcolor(int32_t from, int32_t to, int16_t positions)
 {
-	xSemaphoreTake(led_mutex, pdMS_TO_TICKS(TIMEOUT_SHORT));
-	led_position_end = positions;
+	//xSemaphoreTake(led_mutex, pdMS_TO_TICKS(TIMEOUT_SHORT));
+	/*led_position_end = positions;
 	if(led_position_end > LED_MAX_POSITION)
 		led_position_end = LED_MAX_POSITION;
 	if(led_position_end < 1)
@@ -107,8 +107,8 @@ void led_setcolor(int32_t from, int32_t to, int16_t positions)
 	led_color_add_r = ((from & 0xFF00) >> 8) - ((to & 0xFF00) >> 8);
 	led_color_add_g = ((from & 0xFF0000) >> 16) - ((to & 0xFF0000) >> 16);
 	led_color_add_b = (from & 0xFF) - (to & 0xFF);
-
+								 */
 	led_state.leds[0] = from;
 	ws2812_write_leds(led_state);
-	xSemaphoreGive(led_mutex);
+	//xSemaphoreGive(led_mutex);
 }
