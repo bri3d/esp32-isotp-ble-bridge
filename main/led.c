@@ -45,6 +45,7 @@ void led_task(void *arg)
 		xSemaphoreTake(led_mutex, pdMS_TO_TICKS(TIMEOUT_SHORT));
 		if(led_type == LED_TYPE_FADE) {
 			led_fade_t* current_fade = &led_fades[led_fade];
+			uint16_t last_pos = current_fade->position;
 			if(++current_fade->position >= current_fade->count) {
 				if(current_fade->flags & LED_FLAG_REPEAT) {
 					current_fade->position = 0;
@@ -53,7 +54,9 @@ void led_task(void *arg)
 					current_fade->position = current_fade->count - 1;
 				}
 			}
-			ws2812_write_leds(current_fade->colors[current_fade->direction%2?current_fade->position:current_fade->count - current_fade->position - 1]);
+			uint16_t new_pos = current_fade->direction%2?current_fade->position:current_fade->count - current_fade->position - 1;
+			if(last_pos != new_pos)
+				ws2812_write_leds(current_fade->colors[new_pos]);
 		}
 		xSemaphoreGive(led_mutex);
 		vTaskDelay(pdMS_TO_TICKS(LED_DELAY));
