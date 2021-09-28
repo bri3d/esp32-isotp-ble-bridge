@@ -12,59 +12,59 @@
 #include "led.h"
 
 #define LED_TAG 			"LED"
-#define LED_DELAY			20
-#define LED_MAX_POSITION	1000
+#define LED_DELAY			50
 #define LED_TSK_PRIO      	0
+#define LED_FADE_COUNT		1
+#define LED_MAX_FADE        10
+
+#define LED_TYPE_COLOR		0
+#define LED_TYPE_FADE		1
+
+#define LED_FLAG_REPEAT		1
+
+typedef struct {
+	uint16_t position;
+	uint16_t direction;
+	uint16_t count;
+	uint16_t flags;
+	uint32_t colors[LED_MAX_FADE];
+} led_fade_t;
 
 SemaphoreHandle_t led_mutex = NULL;
-int32_t led_position 		= 0;
-int32_t led_position_end 	= LED_MAX_POSITION;
-int32_t led_direction  		= 1;
-int32_t led_color_from_r	= 0;
-int32_t led_color_from_g	= 0;
-int32_t led_color_from_b	= 0;
-int32_t led_color_add_r		= 0;
-int32_t led_color_add_g		= 0;
-int32_t led_color_add_b		= 0;
+uint32_t led_fade 			= 0;
+uint16_t led_type			= LED_TYPE_COLOR;
 
-// LED colors
-struct led_state led_state = {
-	.leds[0] = 0x008000
+led_fade_t led_fades[LED_FADE_COUNT] = {
+//Data fade
+{0,1,10,0, {0x000080, 0x000070, 0x000060, 0x000050, 0x000040, 0x000030, 0x200020, 0x400010, 0x600000, 0x800000}}
 };
 
-/*void set_color(int16_t position)
-{
-	int8_t r = led_color_from_r - (led_color_add_r * position / led_position_end);
-	int8_t g = led_color_from_g - (led_color_add_g * position / led_position_end);
-	int8_t b = led_color_from_b - (led_color_add_b * position / led_position_end);
-
-	uint32_t color = ((g & 0xFF) << 16) + ((r & 0xFF) << 8) + (b & 0xFF);
-
-	led_state.leds[0] = color;
-	ws2812_write_leds(led_state);
-}       */
-
-/*void led_task(void *arg)
+void led_task(void *arg)
 {
 	while(1) {
 		xSemaphoreTake(led_mutex, pdMS_TO_TICKS(TIMEOUT_SHORT));
-		if(led_position_end > 1) {
-			if(++led_position >= led_position_end) {
-				led_position = 0;
-				led_direction++;
+		if(led_type == LED_TYPE_FADE) {
+			led_fade_t* current_fade = &led_fades[led_fade];
+			if(++current_fade->position >= current_fade->count) {
+				if(current_fade->flags & LED_FLAG_REPEAT) {
+					current_fade->position = 0;
+					current_fade->direction++;
+				} else {
+					current_fade->position = current_fade->count - 1;
+				}
 			}
-			set_color(led_direction%2?led_position:led_position_end-led_position);
+			ws2812_write_leds(current_fade->colors[current_fade->direction%2?current_fade->position:current_fade->count - current_fade->position - 1]);
 		}
 		xSemaphoreGive(led_mutex);
 		vTaskDelay(pdMS_TO_TICKS(LED_DELAY));
 	}
 	vTaskDelete(NULL);
-}    */
+}
 
 void led_start()
 {
-	//if(led_mutex)
-	//	return;
+	if(led_mutex)
+		return;
 
 	// Configure LED enable pin (switches transistor to push LED)
 	gpio_config_t io_conf_led;
@@ -76,39 +76,42 @@ void led_start()
 	gpio_config(&io_conf_led);
 	gpio_set_level(LED_ENABLE_GPIO_NUM, 0);
 
-	// Configure LED to Red
-	ws2812_control_init(LED_GPIO_NUM);
-	led_setcolor(LED_RED, LED_RED, 1);
-
 	//Start led task
-	/*led_mutex = xSemaphoreCreateMutex();
-	xTaskCreatePinnedToCore(led_task, "LED_process", 4096, NULL, LED_TSK_PRIO, NULL, tskNO_AFFINITY); */
+	led_mutex = xSemaphoreCreateMutex();
+	ws2812_control_init(LED_GPIO_NUM);
+	led_setcolor(LED_RED_HALF);
+	xTaskCreatePinnedToCore(led_task, "LED_process", 4096, NULL, LED_TSK_PRIO, NULL, tskNO_AFFINITY);
 }
 
 void led_stop()
 {
-	led_setcolor(LED_OFF, LED_OFF, 1);
+	led_setcolor(LED_OFF);
 }
 
-void led_setcolor(int32_t from, int32_t to, int16_t positions)
+void led_setcolor(uint32_t color)
 {
-	//xSemaphoreTake(led_mutex, pdMS_TO_TICKS(TIMEOUT_SHORT));
-	/*led_position_end = positions;
-	if(led_position_end > LED_MAX_POSITION)
-		led_position_end = LED_MAX_POSITION;
-	if(led_position_end < 1)
-		led_position_end = 1;
+	xSemaphoreTake(led_mutex, pdMS_TO_TICKS(TIMEOUT_SHORT));
+	led_type = LED_TYPE_COLOR;
+	ws2812_write_leds(color & 0xFFFFFF);
+	xSemaphoreGive(led_mutex);
+}
 
-	led_direction = 1;
-	led_position = 0;
-	led_color_from_r = (from & 0xFF00) >> 8;
-	led_color_from_g = (from & 0xFF0000) >> 16;
-	led_color_from_b = from & 0xFF;
-	led_color_add_r = ((from & 0xFF00) >> 8) - ((to & 0xFF00) >> 8);
-	led_color_add_g = ((from & 0xFF0000) >> 16) - ((to & 0xFF0000) >> 16);
-	led_color_add_b = (from & 0xFF) - (to & 0xFF);
-								 */
-	led_state.leds[0] = from;
-	ws2812_write_leds(led_state);
-	//xSemaphoreGive(led_mutex);
+void led_setfade(uint16_t fade)
+{
+	xSemaphoreTake(led_mutex, pdMS_TO_TICKS(TIMEOUT_SHORT));
+	led_type = LED_TYPE_FADE;
+	if(led_fade >= LED_FADE_COUNT)
+		led_fade = LED_FADE_COUNT - 1;
+
+	led_fade_t* current_fade = &led_fades[led_fade];
+	current_fade->position = 0;
+	current_fade->direction = 1;
+
+	ws2812_write_leds(current_fade->colors[0]);
+	xSemaphoreGive(led_mutex);
+}
+
+void led_resetfade()
+{
+	led_setfade(led_fade);
 }

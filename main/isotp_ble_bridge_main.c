@@ -113,6 +113,7 @@ static void isotp_send_queue_task(void *arg)
 				isotp_send(&isotp_link_container->link, msg.buffer, msg.msg_length);
 				xSemaphoreGive(isotp_mutex);
 				xSemaphoreGive(isotp_link_container->wait_for_isotp_data_sem);
+				led_resetfade();
 				break;
             }
 		}
@@ -210,11 +211,11 @@ void received_from_ble(const void* src, size_t size)
 }
 
 void notifications_disabled() {
-	led_setcolor(LED_RED_HALF, LED_RED_HALF, 1);
+	led_setcolor(LED_RED_HALF);
 }
 
 void notifications_enabled() {
-	led_setcolor(LED_GREEN_HALF, LED_GREEN_HALF, 1);
+	led_setfade(0);
 }
 
 /* ------------ Primary startup ---------------- */
