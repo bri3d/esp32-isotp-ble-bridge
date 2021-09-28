@@ -113,8 +113,8 @@ void persist_set(uint16_t enable)
 	msgPersistEnabled = enable;
 
 	//set LED
-	if(enable) led_setcolor(LED_BLUE_HALF, LED_OFF, 25, 40);
-		led_setcolor(LED_GREEN_HALF, LED_GREEN_HALF, 1000, 1);
+	if(enable) led_setcolor(LED_BLUE_HALF, LED_OFF, 50);
+		led_setcolor(LED_GREEN_HALF, LED_GREEN_HALF, 1);
 
 	xSemaphoreGive(persist_message_mutex);
 	ESP_LOGI(PERSIST_TAG, "Persistent messages: %d", enable);

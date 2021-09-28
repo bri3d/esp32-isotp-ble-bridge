@@ -12,6 +12,6 @@
 void led_start();
 void led_stop();
 
-void led_setcolor(int32_t from, int32_t to, int16_t delay, int16_t positions);
+void led_setcolor(int32_t from, int32_t to, int16_t positions);
 
 #endif

@@ -12,13 +12,11 @@
 #include "led.h"
 
 #define LED_TAG 			"LED"
-#define LED_MIN_DELAY		10
-#define LED_MAX_DELAY		10000
+#define LED_DELAY			20
 #define LED_MAX_POSITION	1000
 #define LED_TSK_PRIO      	0
 
-SemaphoreHandle_t led_mutex = NULL;
-int32_t led_delay 			= LED_MIN_DELAY;
+//SemaphoreHandle_t led_mutex = NULL;
 int32_t led_position 		= 0;
 int32_t led_position_end 	= LED_MAX_POSITION;
 int32_t led_direction  		= 1;
@@ -28,7 +26,6 @@ int32_t led_color_from_b	= 0;
 int32_t led_color_add_r		= 0;
 int32_t led_color_add_g		= 0;
 int32_t led_color_add_b		= 0;
-uint16_t led_kill			= false;
 
 // LED colors
 static struct led_state led_state = {
@@ -50,53 +47,42 @@ void set_color(int16_t position)
 void led_task(void *arg)
 {
 	while(1) {
-		if(led_kill == false)
-			break;
-
-		xSemaphoreTake(led_mutex, pdMS_TO_TICKS(TIMEOUT_SHORT));
-		if(++led_position >= led_position_end) {
-			led_position = 0;
-			led_direction++;
+		//xSemaphoreTake(led_mutex, pdMS_TO_TICKS(TIMEOUT_SHORT));
+		if(led_position_end > 1) {
+			if(++led_position >= led_position_end) {
+				led_position = 0;
+				led_direction++;
+			}
+			set_color(led_direction%2?led_position:led_position_end-led_position);
 		}
-		set_color(led_direction%2?led_position:led_position_end-led_position);
-		xSemaphoreGive(led_mutex);
-		vTaskDelay(pdMS_TO_TICKS(led_delay));
+		//xSemaphoreGive(led_mutex);
+		vTaskDelay(pdMS_TO_TICKS(LED_DELAY));
 	}
-	led_setcolor(LED_OFF, LED_OFF, 1000, 1);
-	vSemaphoreDelete(led_mutex);
-    led_mutex = NULL;
 	vTaskDelete(NULL);
 }
 
 void led_start()
 {
-	if(led_mutex)
-		return;
+	//if(led_mutex)
+	//	return;
 
 	// Configure LED to Red
 	ws2812_control_init(LED_GPIO_NUM);
-	led_setcolor(LED_RED, LED_RED, 1000, 1);
+	led_setcolor(LED_RED, LED_RED, 1);
 
 	//Start led task
-	//led_kill = false;
 	//led_mutex = xSemaphoreCreateMutex();
-	//xTaskCreatePinnedToCore(led_task, "LED_process", 4096, NULL, LED_TSK_PRIO, NULL, tskNO_AFFINITY);
+	xTaskCreatePinnedToCore(led_task, "LED_process", 4096, NULL, LED_TSK_PRIO, NULL, tskNO_AFFINITY);
 }
 
 void led_stop()
 {
-	led_kill = true;
+	led_setcolor(LED_OFF, LED_OFF, 1);
 }
 
-void led_setcolor(int32_t from, int32_t to, int16_t delay, int16_t positions)
+void led_setcolor(int32_t from, int32_t to, int16_t positions)
 {
 	//xSemaphoreTake(led_mutex, pdMS_TO_TICKS(TIMEOUT_SHORT));
-	led_delay = delay;
-	if(led_delay > LED_MAX_DELAY)
-		led_delay = LED_MAX_DELAY;
-	if(led_delay < LED_MIN_DELAY)
-		led_delay = LED_MIN_DELAY;
-
 	led_position_end = positions;
 	if(led_position_end > LED_MAX_POSITION)
 		led_position_end = LED_MAX_POSITION;

@@ -210,11 +210,11 @@ void received_from_ble(const void* src, size_t size)
 }
 
 void notifications_disabled() {
-	//led_setcolor(LED_RED_HALF, LED_RED_HALF, 1000, 1);
+	led_setcolor(LED_RED_HALF, LED_RED_HALF, 1);
 }
 
 void notifications_enabled() {
-	//led_setcolor(LED_GREEN_HALF, LED_GREEN_HALF, 1000, 1);
+	led_setcolor(LED_GREEN_HALF, LED_GREEN_HALF, 1);
 }
 
 /* ------------ Primary startup ---------------- */
