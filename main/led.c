@@ -56,7 +56,7 @@ void led_task(void *arg)
 			led_direction++;
 		}
 		set_color(led_direction%2?led_position:led_position_end-led_position);
-		xSemaphoreGive(isotp_mutex);
+		xSemaphoreGive(led_mutex);
 		vTaskDelay(pdMS_TO_TICKS(led_delay));
 	}
 	led_setcolor(LED_OFF, LED_OFF, 1000, 1);
@@ -110,5 +110,5 @@ void led_setcolor(int32_t from, int32_t to, int16_t delay, int16_t positions)
 	led_color_add_b = (from & 0xFF) - (to & 0xFF);
 
 	set_color(0);
-	xSemaphoreGive(isotp_mutex);
+	xSemaphoreGive(led_mutex);
 }
