@@ -85,14 +85,18 @@ int16_t persist_send()
 	//We are good, lets send the message!
 	send_message_t msg;
 	msg.buffer = malloc(pMsg->msg_length);
-	memcpy(msg.buffer, pMsg->buffer, pMsg->msg_length);
-	msg.msg_length = pMsg->msg_length;
-	msg.rxID = 0x7E0;
-	msg.txID = 0x7E8;
+	if(msg.buffer == NULL){
+		ESP_LOGI(PERSIST_TAG, "malloc error %s %d", __func__, __LINE__);
+	} else {
+		memcpy(msg.buffer, pMsg->buffer, pMsg->msg_length);
+		msg.msg_length = pMsg->msg_length;
+		msg.rxID = 0x7E0;
+		msg.txID = 0x7E8;
 
-	xQueueSend(isotp_send_message_queue, &msg, pdMS_TO_TICKS(TIMEOUT_SHORT));
+		xQueueSend(isotp_send_message_queue, &msg, pdMS_TO_TICKS(TIMEOUT_SHORT));
 
-	ESP_LOGI(PERSIST_TAG, "Persistent message sent [%04X]", msg.msg_length);
+		ESP_LOGI(PERSIST_TAG, "Persistent message sent [%04X]", msg.msg_length);
+	}
 	xSemaphoreGive(persist_message_mutex);
 
 	return true;
@@ -131,11 +135,14 @@ int16_t persist_add(const void* src, size_t size)
 
 	send_message_t* pMsg = &msgPersist[msgPersistCount++];
 	pMsg->buffer = malloc(size);
-	memcpy(pMsg->buffer, src, size);
-	pMsg->msg_length = size;
+	if(pMsg->buffer == NULL){
+		ESP_LOGI(PERSIST_TAG, "malloc error %s %d", __func__, __LINE__);
+	} else {
+		memcpy(pMsg->buffer, src, size);
+		pMsg->msg_length = size;
+		ESP_LOGI(PERSIST_TAG, "Persistent message added [%04X]", size);
+	}
 	xSemaphoreGive(persist_message_mutex);
-
-	ESP_LOGI(PERSIST_TAG, "Persistent message added [%04X]", size);
 
 	return true;
 }

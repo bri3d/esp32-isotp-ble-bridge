@@ -397,7 +397,7 @@ void send_task(void *pvParameters)
 					if(dataLength <= (spp_mtu_size - 3)) {
 						esp_ble_gatts_send_indicate(spp_gatts_if, spp_conn_id, spp_handle_table[SPP_IDX_SPP_DATA_NTY_VAL], dataLength, data, false);
 					} else {
-						//determine packet size
+						//determine packet size for split packets
 						uint16_t pack_size = spp_mtu_size - 3;
 
 						//allocate space for payload chunk
@@ -411,7 +411,7 @@ void send_task(void *pvParameters)
 						//First chunk
 						uint16_t data_pos = pack_size;
 						memcpy(data_chunk, data, pack_size);
-						data_chunk[1] |= BLE_COMMAND_FLAG_MULT_PK;
+						data_chunk[1] |= BLE_COMMAND_FLAG_SPLIT_PK;
 						esp_ble_gatts_send_indicate(spp_gatts_if, spp_conn_id, spp_handle_table[SPP_IDX_SPP_DATA_NTY_VAL], pack_size, data_chunk, false);
 
 						//send the chunks

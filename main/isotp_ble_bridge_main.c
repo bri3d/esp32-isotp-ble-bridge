@@ -80,7 +80,8 @@ static void isotp_processing_task(void *arg)
 			} else {
 				ble_send(link_ptr->receive_arbitration_id, link_ptr->send_arbitration_id, payload_buf, out_size);
 			}
-
+			//reset led to show data
+			led_resetfade();
         }
         vTaskDelay(0); // Allow higher priority tasks to run, for example Rx/Tx
     }
@@ -113,7 +114,6 @@ static void isotp_send_queue_task(void *arg)
 				isotp_send(&isotp_link_container->link, msg.buffer, msg.msg_length);
 				xSemaphoreGive(isotp_mutex);
 				xSemaphoreGive(isotp_link_container->wait_for_isotp_data_sem);
-				led_resetfade();
 				break;
             }
 		}
@@ -124,6 +124,84 @@ static void isotp_send_queue_task(void *arg)
 
 /* ----------- BLE callbacks ---------------- */
 
+ble_header_t 	split_header;
+uint16_t		split_enabled = false;
+uint8_t 		split_count = 0;
+uint16_t 		split_length = 0;
+uint8_t* 		split_data = NULL;
+
+void split_clear()
+{
+	memset(&split_header, 0, sizeof(ble_header_t));
+	split_enabled = false;
+	split_count = 0;
+	split_length = 0;
+	if(split_data) {
+		free(split_data);
+		split_data = NULL;
+	}
+}
+
+bool parse_packet(ble_header_t* header, uint8_t* data)
+{
+	//Are we in persistent mode?
+	if(persist_enabled())
+	{
+		//Should we clear the persist messages in memory?
+		if(header->cmdFlags & BLE_COMMAND_FLAG_PER_CLEAR)
+		{
+			persist_clear();
+		}
+
+		//Should we disable persist mode?
+		if((header->cmdFlags & BLE_COMMAND_FLAG_PER_ENABLE) == 0)
+		{
+			persist_set(false);
+		} else {
+			//If we are still in persist mode quit
+			return false;
+		}
+	} else
+	{ 	//Not in persistent mode
+		if(header->cmdFlags & BLE_COMMAND_FLAG_PER_CLEAR)
+		{
+			persist_clear();
+		}
+
+		if(header->cmdFlags & BLE_COMMAND_FLAG_PER_ADD)
+		{
+			persist_add(data, header->cmdSize);
+		}
+
+		if(header->cmdFlags & BLE_COMMAND_FLAG_PER_ENABLE)
+		{
+			persist_set(true);
+			return false;
+		}
+	}
+
+	if(header->cmdSize)
+	{
+		if(!persist_enabled())
+		{
+			ESP_LOGI(BRIDGE_TAG, "Received message [%04X]", header->cmdSize);
+
+			send_message_t msg;
+			msg.msg_length = header->cmdSize;
+			msg.rxID = header->rxID;
+			msg.txID = header->txID;
+			msg.buffer = malloc(header->cmdSize);
+			memcpy(msg.buffer, data, header->cmdSize);
+
+			xQueueSend(isotp_send_message_queue, &msg, pdMS_TO_TICKS(TIMEOUT_NORMAL));
+		}
+
+		return true;
+	}
+
+	return false;
+}
+
 void received_from_ble(const void* src, size_t size)
 {
 	//store current data pointer
@@ -131,81 +209,89 @@ void received_from_ble(const void* src, size_t size)
 
 	ESP_LOGD(BRIDGE_TAG, "BLE packet size [%d]", size);
 
-	//If the packet does not contain header abort
-	while(size >= sizeof(ble_header_t))
-	{
-		//Confirm the header is valid
-		ble_header_t* header = (ble_header_t*)data;
-		if(header->hdID != BLE_HEADER_ID)
-		{
-			ESP_LOGI(BRIDGE_TAG, "BLE packet header does not match [%02X, %02X]", header->hdID, BLE_HEADER_ID);
-			return;
+	//Are we in Split packet mode?
+	if(split_enabled && data[0] == BLE_PARTIAL_ID) {
+		//check packet count
+		if(data[1] == split_count) {
+			uint8_t* new_data = malloc(split_length + size - 2);
+			if(new_data == NULL){
+				ESP_LOGI(BRIDGE_TAG, "malloc error %s %d", __func__, __LINE__);
+				split_clear();
+				return;
+			}
+			memcpy(new_data, split_data, split_length);
+			memcpy(new_data + split_length, data + 2, size - 2);
+			free(split_data);
+			split_data = new_data;
+			split_length += size-2;
+			split_count++;
+
+			//got complete message
+			if(split_length == split_header.cmdSize)
+			{   //Messsage size matches
+				parse_packet(&split_header, split_data);
+			} else if(split_length > split_header.cmdSize)
+			{   //Message size does not match
+				ESP_LOGI(BRIDGE_TAG, "BLE command size is larger than packet size [%d, %d]", split_header.cmdSize, split_length);
+				split_clear();
+			}
+		} else {
+			//error delete and forget
+			ESP_LOGI(BRIDGE_TAG, "BLE multipacket out of order [%d, %d]", data[1], split_count);
+			split_clear();
 		}
+	} else {
+		//disable splitpacket
+		split_enabled = false;
 
-		ESP_LOGD(BRIDGE_TAG, "BLE header [%02X, %02X, %04X, %04X, %04X]", header->hdID, header->cmdFlags, header->rxID, header->txID, header->cmdSize);
-
-		data += sizeof(ble_header_t);
-		size -= sizeof(ble_header_t);
-		if(header->cmdSize > size)
+		//If the packet does not contain header abort
+		while(size >= sizeof(ble_header_t))
 		{
-			ESP_LOGI(BRIDGE_TAG, "BLE command size is larger than packet size [%d, %d]", header->cmdSize, size);
-			return;
-		}
-
-		//Are we in persistent mode?
-		if(persist_enabled())
-		{
-			//Should we clear the persist messages in memory?
-			if(header->cmdFlags & BLE_COMMAND_FLAG_PER_CLEAR)
+			//Confirm the header is valid
+			ble_header_t* header = (ble_header_t*)data;
+			if(header->hdID != BLE_HEADER_ID)
 			{
-				persist_clear();
+				ESP_LOGI(BRIDGE_TAG, "BLE packet header does not match [%02X, %02X]", header->hdID, BLE_HEADER_ID);
+				return;
 			}
 
-			//Should we disable persist mode?
-			if((header->cmdFlags & BLE_COMMAND_FLAG_PER_ENABLE) == 0)
+			//header has pointer, skip past header in data
+			data += sizeof(ble_header_t);
+			size -= sizeof(ble_header_t);
+
+			//Confirm data size is legit
+			if(header->cmdSize > size)
 			{
-				persist_set(false);
+				//Are they requesting splitpacket?
+				if(header->cmdFlags & BLE_COMMAND_FLAG_SPLIT_PK)
+				{
+					split_clear();
+					split_enabled = true;
+					split_data = malloc(size);
+					if(split_data == NULL){
+						ESP_LOGI(BRIDGE_TAG, "malloc error %s %d", __func__, __LINE__);
+						split_clear();
+						return;
+					}
+					memcpy(split_data, data, size);
+					memcpy(&split_header, header, sizeof(ble_header_t));
+					split_count = 1;
+					split_length = size;
+					return;
+				} else {
+					ESP_LOGI(BRIDGE_TAG, "BLE command size is larger than packet size [%d, %d]", header->cmdSize, size);
+					return;
+				}
+			}
+
+			//looks good, parse the packet
+			if(parse_packet(header, data))
+			{
+				data += header->cmdSize;
+				size -= header->cmdSize;
 			} else {
-				//If we are still in persist mode quit
 				return;
 			}
-		} else
-		{ 	//Not in persistent mode
-			if(header->cmdFlags & BLE_COMMAND_FLAG_PER_CLEAR)
-			{
-				persist_clear();
-			}
-
-			if(header->cmdFlags & BLE_COMMAND_FLAG_PER_ADD)
-			{
-				persist_add(data, header->cmdSize);
-			}
-
-			if(header->cmdFlags & BLE_COMMAND_FLAG_PER_ENABLE)
-			{
-				persist_set(true);
-				return;
-			}
-		}
-
-		if(header->cmdSize)
-		{
-			if(!persist_enabled())
-			{
-				ESP_LOGI(BRIDGE_TAG, "Received message [%04X]", header->cmdSize);
-
-				send_message_t msg;
-				msg.msg_length = header->cmdSize;
-				msg.rxID = header->rxID;
-				msg.txID = header->txID;
-				msg.buffer = malloc(header->cmdSize);
-				memcpy(msg.buffer, data, header->cmdSize);
-
-				xQueueSend(isotp_send_message_queue, &msg, pdMS_TO_TICKS(TIMEOUT_NORMAL));
-			}
-
-			data += header->cmdSize;
-			size -= header->cmdSize;
 		}
 	}
 }

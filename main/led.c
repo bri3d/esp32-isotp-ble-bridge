@@ -12,7 +12,7 @@
 #include "led.h"
 
 #define LED_TAG 			"LED"
-#define LED_DELAY			50
+#define LED_DELAY			100
 #define LED_TSK_PRIO      	0
 #define LED_FADE_COUNT		1
 #define LED_MAX_FADE        10
@@ -116,5 +116,15 @@ void led_setfade(uint16_t fade)
 
 void led_resetfade()
 {
-	led_setfade(led_fade);
+	xSemaphoreTake(led_mutex, pdMS_TO_TICKS(TIMEOUT_SHORT));
+
+	led_fade_t* current_fade = &led_fades[led_fade];
+	if(current_fade->position)
+	{
+		current_fade->position = 0;
+		current_fade->direction = 1;
+
+		ws2812_write_leds(current_fade->colors[0]);
+	}
+	xSemaphoreGive(led_mutex);
 }
