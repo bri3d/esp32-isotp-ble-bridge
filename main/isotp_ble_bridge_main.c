@@ -75,7 +75,7 @@ static void isotp_processing_task(void *arg)
 				uint32_t time = isotp_user_get_ms();
 				uint16_t rxID = (time >> 16) & 0xFFFF;
 				uint16_t txID = time & 0xFFFF;
-				ble_send(rxID, txID, payload_buf, out_size);
+				ble_send(txID, rxID, payload_buf, out_size);
 				xSemaphoreGive(persist_message_send);
 			} else {
 				ble_send(link_ptr->receive_arbitration_id, link_ptr->send_arbitration_id, payload_buf, out_size);
@@ -188,8 +188,8 @@ bool parse_packet(ble_header_t* header, uint8_t* data)
 
 			send_message_t msg;
 			msg.msg_length = header->cmdSize;
-			msg.rxID = header->rxID;
-			msg.txID = header->txID;
+			msg.rxID = header->txID;
+			msg.txID = header->rxID;
 			msg.buffer = malloc(header->cmdSize);
 			memcpy(msg.buffer, data, header->cmdSize);
 
