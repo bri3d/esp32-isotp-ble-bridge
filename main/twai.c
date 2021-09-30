@@ -13,8 +13,7 @@
 
 #define TWAI_TAG 		"twai"
 
-
-/*static const twai_general_config_t g_config = {
+static const twai_general_config_t g_config = {
 	.mode = TWAI_MODE_NORMAL,
 	.tx_io = TX_GPIO_NUM,
 	.rx_io = RX_GPIO_NUM,
@@ -27,12 +26,12 @@
 	.intr_flags = ESP_INTR_FLAG_LEVEL1
 };
 static const twai_timing_config_t t_config = TWAI_TIMING_CONFIG_500KBITS();
-static const twai_filter_config_t f_config = TWAI_FILTER_CONFIG_ACCEPT_ALL();  */
+static const twai_filter_config_t f_config = TWAI_FILTER_CONFIG_ACCEPT_ALL();
 
 // TWAI/CAN configuration
-static const twai_general_config_t g_config = TWAI_GENERAL_CONFIG_DEFAULT(TX_GPIO_NUM, RX_GPIO_NUM, TWAI_MODE_NORMAL);
+/*static const twai_general_config_t g_config = TWAI_GENERAL_CONFIG_DEFAULT(TX_GPIO_NUM, RX_GPIO_NUM, TWAI_MODE_NORMAL);
 static const twai_timing_config_t t_config = TWAI_TIMING_CONFIG_500KBITS();
-static const twai_filter_config_t f_config = TWAI_FILTER_CONFIG_ACCEPT_ALL();
+static const twai_filter_config_t f_config = TWAI_FILTER_CONFIG_ACCEPT_ALL(); */
 
 void twai_install()
 {
@@ -90,7 +89,8 @@ void twai_transmit_task(void *arg)
             ESP_LOGD(TWAI_TAG, "TX Data: %02X", tx_msg.data[i]);
         }
         twai_transmit(&tx_msg, portMAX_DELAY);
-        ESP_LOGD(TWAI_TAG, "Sent TWAI Message with ID %08X", tx_msg.identifier);
+		ESP_LOGD(TWAI_TAG, "Sent TWAI Message with ID %08X", tx_msg.identifier);
+		vTaskDelay(0);
     }
     vTaskDelete(NULL);
 }

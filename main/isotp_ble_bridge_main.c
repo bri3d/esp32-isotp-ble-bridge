@@ -80,8 +80,6 @@ static void isotp_processing_task(void *arg)
 			} else {
 				ble_send(link_ptr->receive_arbitration_id, link_ptr->send_arbitration_id, payload_buf, out_size);
 			}
-			//reset led to show data
-			led_resetfade();
         }
         vTaskDelay(0); // Allow higher priority tasks to run, for example Rx/Tx
     }
@@ -144,9 +142,17 @@ void split_clear()
 
 bool parse_packet(ble_header_t* header, uint8_t* data)
 {
-	//Are we in persistent mode?
-	if(persist_enabled())
+	//set led color?
+	if(header->cmdFlags & BLE_COMMAND_FLAG_LED_COLOR)
 	{
+		if(header->cmdSize == 4)
+		{
+			uint32_t* color = (uint32_t*)data;
+			led_setcolor(*color);
+			return true;
+		}
+	} else if(persist_enabled())
+	{   //Are we in persistent mode?
 		//Should we clear the persist messages in memory?
 		if(header->cmdFlags & BLE_COMMAND_FLAG_PER_CLEAR)
 		{
@@ -158,7 +164,7 @@ bool parse_packet(ble_header_t* header, uint8_t* data)
 		{
 			persist_set(false);
 		} else {
-			//If we are still in persist mode quit
+			//If we are still in persist mode only accept LED color change
 			return false;
 		}
 	} else
@@ -207,12 +213,12 @@ void received_from_ble(const void* src, size_t size)
 	//store current data pointer
 	uint8_t* data = (uint8_t*)src;
 
-	ESP_LOGD(BRIDGE_TAG, "BLE packet size [%d]", size);
-
 	//Are we in Split packet mode?
 	if(split_enabled && data[0] == BLE_PARTIAL_ID) {
 		//check packet count
 		if(data[1] == split_count) {
+			ESP_LOGI(BRIDGE_TAG, "Split packet [%02X] adding [%02X]", split_count, size-2);
+
 			uint8_t* new_data = malloc(split_length + size - 2);
 			if(new_data == NULL){
 				ESP_LOGI(BRIDGE_TAG, "malloc error %s %d", __func__, __LINE__);
@@ -229,15 +235,17 @@ void received_from_ble(const void* src, size_t size)
 			//got complete message
 			if(split_length == split_header.cmdSize)
 			{   //Messsage size matches
+				ESP_LOGI(BRIDGE_TAG, "Split packet size matches [%02X]", split_length);
 				parse_packet(&split_header, split_data);
+				split_clear();
 			} else if(split_length > split_header.cmdSize)
 			{   //Message size does not match
-				ESP_LOGI(BRIDGE_TAG, "BLE command size is larger than packet size [%d, %d]", split_header.cmdSize, split_length);
+				ESP_LOGI(BRIDGE_TAG, "Command size is larger than packet size [%02X, %02X]", split_header.cmdSize, split_length);
 				split_clear();
 			}
 		} else {
 			//error delete and forget
-			ESP_LOGI(BRIDGE_TAG, "BLE multipacket out of order [%d, %d]", data[1], split_count);
+			ESP_LOGI(BRIDGE_TAG, "Splitpacket out of order [%d, %d]", data[1], split_count);
 			split_clear();
 		}
 	} else {
@@ -251,7 +259,7 @@ void received_from_ble(const void* src, size_t size)
 			ble_header_t* header = (ble_header_t*)data;
 			if(header->hdID != BLE_HEADER_ID)
 			{
-				ESP_LOGI(BRIDGE_TAG, "BLE packet header does not match [%02X, %02X]", header->hdID, BLE_HEADER_ID);
+				ESP_LOGI(BRIDGE_TAG, "Packet header does not match [%02X, %02X]", header->hdID, BLE_HEADER_ID);
 				return;
 			}
 
@@ -265,6 +273,7 @@ void received_from_ble(const void* src, size_t size)
 				//Are they requesting splitpacket?
 				if(header->cmdFlags & BLE_COMMAND_FLAG_SPLIT_PK)
 				{
+					ESP_LOGI(BRIDGE_TAG, "Starting split packet [%02X]", header->cmdSize);
 					split_clear();
 					split_enabled = true;
 					split_data = malloc(size);
@@ -279,7 +288,7 @@ void received_from_ble(const void* src, size_t size)
 					split_length = size;
 					return;
 				} else {
-					ESP_LOGI(BRIDGE_TAG, "BLE command size is larger than packet size [%d, %d]", header->cmdSize, size);
+					ESP_LOGI(BRIDGE_TAG, "Command size is larger than packet size [%02X, %02X]", header->cmdSize, size);
 					return;
 				}
 			}
@@ -301,7 +310,7 @@ void notifications_disabled() {
 }
 
 void notifications_enabled() {
-	led_setfade(0);
+	led_setcolor(LED_GREEN_HALF);
 }
 
 /* ------------ Primary startup ---------------- */

@@ -19,10 +19,6 @@
 
 #define ISOTP_BUFSIZE 				4096
 
-//Queue sizes
-#define TASK_QUEUE_SIZE     		32
-#define MESSAGE_QUEUE_SIZE			32
-
 #define TIMEOUT_SHORT				50
 #define TIMEOUT_NORMAL				100
 #define TIMEOUT_LONG				1000

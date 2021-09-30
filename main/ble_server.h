@@ -16,7 +16,7 @@
 #define BLE_COMMAND_FLAG_PER_CLEAR		2
 #define BLE_COMMAND_FLAG_PER_ADD		4
 #define BLE_COMMAND_FLAG_SPLIT_PK		8
-
+#define BLE_COMMAND_FLAG_LED_COLOR		16
 
 //BLE send queue size
 #define SEND_QUEUE_SIZE					64
