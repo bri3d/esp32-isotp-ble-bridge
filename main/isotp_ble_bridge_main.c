@@ -107,8 +107,9 @@ static void isotp_send_queue_task(void *arg)
 		ESP_LOGI(BRIDGE_TAG, "isotp_send_queue_task: sending message with %d size (rx id: %04x / tx id: %04x)", msg.msg_length, msg.rxID, msg.txID);
 		for (int i = 0; i < NUM_ISOTP_LINK_CONTAINERS; ++i) {
 			IsoTpLinkContainer *isotp_link_container = &isotp_link_containers[i];
-			if(msg.txID == isotp_link_container->link.receive_arbitration_id) {
-				ESP_LOGI(BRIDGE_TAG, "match %04x", msg.txID);
+			if(msg.txID == isotp_link_container->link.receive_arbitration_id &&
+				msg.rxID == isotp_link_container->link.send_arbitration_id) {
+				ESP_LOGI(BRIDGE_TAG, "container match [%d]", i);
 				isotp_send(&isotp_link_container->link, msg.buffer, msg.msg_length);
 				xSemaphoreGive(isotp_mutex);
 				xSemaphoreGive(isotp_link_container->wait_for_isotp_data_sem);
@@ -245,7 +246,7 @@ void received_from_ble(const void* src, size_t size)
 			}
 		} else {
 			//error delete and forget
-			ESP_LOGI(BRIDGE_TAG, "Splitpacket out of order [%d, %d]", data[1], split_count);
+			ESP_LOGI(BRIDGE_TAG, "Splitpacket out of order [%02X, %02X]", data[1], split_count);
 			split_clear();
 		}
 	} else {

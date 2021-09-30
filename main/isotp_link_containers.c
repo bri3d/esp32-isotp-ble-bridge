@@ -83,7 +83,7 @@ void configure_isotp_links()
 	assert(dtc_isotp_link_container->payload_buf != NULL);
 	isotp_init_link(
 		&dtc_isotp_link_container->link,
-		0x700, 0x700,
+		0x700, 0x7E8,
 		dtc_isotp_link_container->send_buf, ISOTP_BUFSIZE,
 		dtc_isotp_link_container->recv_buf, ISOTP_BUFSIZE
 	);

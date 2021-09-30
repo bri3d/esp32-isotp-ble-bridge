@@ -36,6 +36,7 @@
 #define ESP_SPP_APP_ID              		0x56
 #define DEVICE_NAME_GAP          			"BLE_TO_ISOTP"    //The Device Name Characteristics in GAP
 #define SPP_SVC_INST_ID	            		0
+#define DEFAULT_MTU_SIZE					23
 
 /// SPP Service
 static const uint16_t spp_service_uuid = 0xABF0;
@@ -57,7 +58,7 @@ static const uint8_t spp_adv_data[23] = {
 static bool kill_ble_tasks = false;
 static ble_server_callbacks server_callbacks;
 
-static uint16_t spp_mtu_size = 23;
+static uint16_t spp_mtu_size = DEFAULT_MTU_SIZE;
 static uint16_t spp_conn_id = 0xffff;
 static esp_gatt_if_t spp_gatts_if = 0xff;
 QueueHandle_t spp_send_queue = NULL;
@@ -344,7 +345,7 @@ void send_task(void *pvParameters)
 					header->txID = event.txID;
 
 					//Can we add more?
-					while(dataLength < (spp_mtu_size - 3))
+					while(dataLength < (spp_mtu_size - 3 - sizeof(ble_header_t)))
 					{
 						//Do we have any other responses ready to send?
 						send_message_t nextEvent;
@@ -556,7 +557,7 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
     	    break;
     	}
     	case ESP_GATTS_MTU_EVT:
-    	    spp_mtu_size = p_data->mtu.mtu;
+			spp_mtu_size = p_data->mtu.mtu;
     	    break;
     	case ESP_GATTS_CONF_EVT:
     	    break;
@@ -576,7 +577,8 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
 			xSemaphoreGive(ble_congested);
         	break;
     	case ESP_GATTS_DISCONNECT_EVT:
-    	    is_connected = false;
+			is_connected = false;
+			spp_mtu_size = DEFAULT_MTU_SIZE;
     	    disable_notification();
 			esp_ble_gap_start_advertising(&spp_adv_params);
 			break;
