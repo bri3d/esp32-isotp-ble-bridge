@@ -48,30 +48,40 @@ void twai_uninstall()
 	ESP_LOGI(TWAI_TAG, "Driver uninstalled");
 }
 
+void twai_send_isotp_message(IsoTpLinkContainer* link, twai_message_t* msg)
+{
+	ESP_LOGD(TWAI_TAG, "twai_receive_task: link match");
+	ESP_LOGD(TWAI_TAG, "Taking isotp_mutex");
+	xSemaphoreTake(isotp_mutex, pdMS_TO_TICKS(TIMEOUT_NORMAL));
+	ESP_LOGD(TWAI_TAG, "Took isotp_mutex");
+	isotp_on_can_message(&link->link, msg->data, msg->data_length_code);
+	ESP_LOGD(TWAI_TAG, "twai_receive_task: giving isotp_mutex");
+	xSemaphoreGive(isotp_mutex);
+	ESP_LOGD(TWAI_TAG, "twai_receive_task: giving wait_for_isotp_data_sem");
+	xSemaphoreGive(link->wait_for_isotp_data_sem);
+}
+
 void twai_receive_task(void *arg)
 {
     while (1)
 	{
 		twai_message_t twai_rx_msg;
 		twai_receive(&twai_rx_msg, portMAX_DELAY); // If no message available, should block and yield.
-        ESP_LOGI(TWAI_TAG, "Received TWAI %08X and length %08X", twai_rx_msg.identifier, twai_rx_msg.data_length_code);
+		ESP_LOGI(TWAI_TAG, "Received TWAI %08X and length %08X", twai_rx_msg.identifier, twai_rx_msg.data_length_code);
         for (int i = 0; i < twai_rx_msg.data_length_code; i++) {
-            ESP_LOGD(TWAI_TAG, "RX Data: %02X", twai_rx_msg.data[i]);
-        }
-        for (int i = 0; i < NUM_ISOTP_LINK_CONTAINERS; ++i) {
-            IsoTpLinkContainer *isotp_link_container = &isotp_link_containers[i];
-            // flipped?
-            if (twai_rx_msg.identifier == isotp_link_container->link.receive_arbitration_id) {
-				ESP_LOGD(TWAI_TAG, "twai_receive_task: link match");
-				ESP_LOGD(TWAI_TAG, "Taking isotp_mutex");
-				xSemaphoreTake(isotp_mutex, pdMS_TO_TICKS(TIMEOUT_NORMAL));
-				ESP_LOGD(TWAI_TAG, "Took isotp_mutex");
-				isotp_on_can_message(&isotp_link_container->link, twai_rx_msg.data, twai_rx_msg.data_length_code);
-				ESP_LOGD(TWAI_TAG, "twai_receive_task: giving isotp_mutex");
-				xSemaphoreGive(isotp_mutex);
-                ESP_LOGD(TWAI_TAG, "twai_receive_task: giving wait_for_isotp_data_sem");
-                xSemaphoreGive(isotp_link_container->wait_for_isotp_data_sem);
-            }
+			ESP_LOGD(TWAI_TAG, "RX Data: %02X", twai_rx_msg.data[i]);
+		}
+		IsoTpLinkContainer *isotp_link_container = &isotp_link_containers[isotp_link_container_id];
+		if(twai_rx_msg.identifier == isotp_link_container->link.receive_arbitration_id) {
+			twai_send_isotp_message(isotp_link_container, &twai_rx_msg);
+		} else {
+			for(int i = 0; i < NUM_ISOTP_LINK_CONTAINERS; ++i) {
+				isotp_link_container = &isotp_link_containers[i];
+				if(twai_rx_msg.identifier == isotp_link_container->link.receive_arbitration_id) {
+					twai_send_isotp_message(isotp_link_container, &twai_rx_msg);
+					break;
+				}
+			}
 		}
 		vTaskDelay(0);
     }

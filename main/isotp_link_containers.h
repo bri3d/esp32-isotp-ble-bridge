@@ -12,6 +12,7 @@ typedef struct IsoTpLinkContainer {
 } IsoTpLinkContainer;
 
 IsoTpLinkContainer isotp_link_containers[NUM_ISOTP_LINK_CONTAINERS];
+uint16_t isotp_link_container_id;
 
 void configure_isotp_links();
 void disable_isotp_links();

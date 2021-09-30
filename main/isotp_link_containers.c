@@ -95,6 +95,9 @@ void configure_isotp_links()
 		isotp_link_container->wait_for_isotp_data_sem = xSemaphoreCreateBinary();
 	}
 
+	//reset default link container id
+	isotp_link_container_id = 0;
+
     // free lock
     xSemaphoreGive(isotp_mutex);
 }

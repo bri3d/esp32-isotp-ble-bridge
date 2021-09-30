@@ -110,6 +110,7 @@ static void isotp_send_queue_task(void *arg)
 			if(msg.txID == isotp_link_container->link.receive_arbitration_id &&
 				msg.rxID == isotp_link_container->link.send_arbitration_id) {
 				ESP_LOGI(BRIDGE_TAG, "container match [%d]", i);
+				isotp_link_container_id = i;
 				isotp_send(&isotp_link_container->link, msg.buffer, msg.msg_length);
 				xSemaphoreGive(isotp_mutex);
 				xSemaphoreGive(isotp_link_container->wait_for_isotp_data_sem);
