@@ -57,7 +57,8 @@ typedef struct IsoTpLink {
                                                      start at sending FC, receive CF 
                                                      end at receive FC */
     int                         receive_protocol_result;
-    uint8_t                     receive_status;                                                     
+	uint8_t                     receive_status;
+	uint16_t				   	stmin_override;
 } IsoTpLink;
 
 /**

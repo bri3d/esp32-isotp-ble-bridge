@@ -288,7 +288,7 @@ int isotp_send_with_id(IsoTpLink *link, uint32_t id, const uint8_t payload[], ui
 
 void isotp_on_can_message(IsoTpLink *link, uint8_t *data, uint8_t len) {
     isotp_user_debug("isotp_on_can_message len = %d link->receive_status = %d\n", len, link->receive_status);
-    for (uint8_t i = 0; i < len; ++i) {
+    for (uint8_t i = 0; i < len; i++) {
         isotp_user_debug("isotp_on_can_message [%02x] = %02x\n", i, data[i]);
     }
 
@@ -378,7 +378,7 @@ void isotp_on_can_message(IsoTpLink *link, uint8_t *data, uint8_t len) {
             }
 
             /* if success */
-            if (ISOTP_RET_OK == ret) {
+			if (ISOTP_RET_OK == ret) {
                 isotp_user_debug("isotp_on_can_message: ISOTP_PCI_TYPE_CONSECUTIVE_FRAME ISOTP_RET_OK\n");
                 /* refresh timer cs */
                 link->receive_timer_cr = isotp_user_get_ms() + ISO_TP_DEFAULT_RESPONSE_TIMEOUT;
@@ -434,7 +434,7 @@ void isotp_on_can_message(IsoTpLink *link, uint8_t *data, uint8_t len) {
                     } else {
                         link->send_bs_remain = message.as.flow_control.BS;
                     }
-                    link->send_st_min = isotp_st_min_to_ms(message.as.flow_control.STmin);
+					link->send_st_min = link->stmin_override?link->stmin_override:isotp_st_min_to_ms(message.as.flow_control.STmin);
                     link->send_wtf_count = 0;
                 }
             }
@@ -469,7 +469,7 @@ int isotp_receive(IsoTpLink *link, uint8_t *payload, const uint16_t payload_size
 }
 
 void isotp_init_link(IsoTpLink *link, uint32_t send_arbitration_id, uint32_t receive_arbitration_id, uint8_t *sendbuf, uint16_t sendbufsize, uint8_t *recvbuf, uint16_t recvbufsize) {
-    isotp_user_debug("isotp_init_link: send_arbitration_id = %08x receive_arbitration_id = %08x\n", send_arbitration_id, receive_arbitration_id);
+	isotp_user_debug("isotp_init_link: send_arbitration_id = %08x receive_arbitration_id = %08x\n", send_arbitration_id, receive_arbitration_id);
     memset(link, 0, sizeof(*link));
     link->receive_status = ISOTP_RECEIVE_STATUS_IDLE;
     link->send_status = ISOTP_SEND_STATUS_IDLE;
@@ -480,7 +480,8 @@ void isotp_init_link(IsoTpLink *link, uint32_t send_arbitration_id, uint32_t rec
     link->receive_buffer = recvbuf;
     link->receive_buf_size = recvbufsize;
     link->st_min = 0; // TODO: support changing this
-    link->default_block_size = 0x20; // TODO: support changing this
+	link->default_block_size = 0x20; // TODO: support changing this
+	link->stmin_override = 0;
     return;
 }
 

@@ -569,17 +569,17 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
         	break;
     	case ESP_GATTS_STOP_EVT:
         	break;
-    	case ESP_GATTS_CONNECT_EVT:
+		case ESP_GATTS_CONNECT_EVT:
 			spp_conn_id = p_data->connect.conn_id;
     	    spp_gatts_if = gatts_if;
 			is_connected = true;
 			memcpy(&spp_remote_bda,&p_data->connect.remote_bda,sizeof(esp_bd_addr_t));
 			xSemaphoreGive(ble_congested);
         	break;
-    	case ESP_GATTS_DISCONNECT_EVT:
+		case ESP_GATTS_DISCONNECT_EVT:
 			is_connected = false;
+			disable_notification();
 			spp_mtu_size = DEFAULT_MTU_SIZE;
-    	    disable_notification();
 			esp_ble_gap_start_advertising(&spp_adv_params);
 			break;
     	case ESP_GATTS_OPEN_EVT:

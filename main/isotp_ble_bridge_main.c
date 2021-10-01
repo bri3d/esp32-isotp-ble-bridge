@@ -105,7 +105,7 @@ static void isotp_send_queue_task(void *arg)
 		xQueueReceive(isotp_send_message_queue, &msg, portMAX_DELAY);
 		xSemaphoreTake(isotp_mutex, pdMS_TO_TICKS(TIMEOUT_NORMAL));
 		ESP_LOGI(BRIDGE_TAG, "isotp_send_queue_task: sending message with %d size (rx id: %04x / tx id: %04x)", msg.msg_length, msg.rxID, msg.txID);
-		for (int i = 0; i < NUM_ISOTP_LINK_CONTAINERS; ++i) {
+		for(uint16_t i = 0; i < NUM_ISOTP_LINK_CONTAINERS; i++) {
 			IsoTpLinkContainer *isotp_link_container = &isotp_link_containers[i];
 			if(msg.txID == isotp_link_container->link.receive_arbitration_id &&
 				msg.rxID == isotp_link_container->link.send_arbitration_id) {
@@ -144,9 +144,25 @@ void split_clear()
 
 bool parse_packet(ble_header_t* header, uint8_t* data)
 {
-	//set led color?
-	if(header->cmdFlags & BLE_COMMAND_FLAG_LED_COLOR)
+	//set stmin override?
+	if(header->cmdFlags & BLE_COMMAND_FLAG_STMIN)
 	{
+		if(header->cmdSize == 2)
+		{
+			for(uint16_t i = 0; i < NUM_ISOTP_LINK_CONTAINERS; i++)
+			{
+				IsoTpLinkContainer *isotp_link_container = &isotp_link_containers[i];
+				if(header->rxID == isotp_link_container->link.receive_arbitration_id &&
+					header->txID == isotp_link_container->link.send_arbitration_id)
+				{
+					uint16_t* stmin = (uint16_t*)data;
+					isotp_link_container->link.stmin_override = *stmin;
+					return true;
+				}
+			}
+		}
+	} else if(header->cmdFlags & BLE_COMMAND_FLAG_LED_COLOR)
+	{   //set led color?
 		if(header->cmdSize == 4)
 		{
 			uint32_t* color = (uint32_t*)data;

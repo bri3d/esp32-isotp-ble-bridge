@@ -89,7 +89,7 @@ void configure_isotp_links()
 	);
 
 	//create semaphores for each link
-	for(int i = 0; i < NUM_ISOTP_LINK_CONTAINERS; ++i)
+	for(uint16_t i = 0; i < NUM_ISOTP_LINK_CONTAINERS; i++)
 	{
 		IsoTpLinkContainer *isotp_link_container = &isotp_link_containers[i];
 		isotp_link_container->wait_for_isotp_data_sem = xSemaphoreCreateBinary();
@@ -99,13 +99,13 @@ void configure_isotp_links()
 	isotp_link_container_id = 0;
 
     // free lock
-    xSemaphoreGive(isotp_mutex);
+	xSemaphoreGive(isotp_mutex);
 }
 
 void disable_isotp_links()
 {
 	//delete semaphores for each link
-	for(int i = 0; i < NUM_ISOTP_LINK_CONTAINERS; ++i)
+	for(uint16_t i = 0; i < NUM_ISOTP_LINK_CONTAINERS; i++)
 	{
 		IsoTpLinkContainer *isotp_link_container = &isotp_link_containers[i];
 		vSemaphoreDelete(isotp_link_container->wait_for_isotp_data_sem);
