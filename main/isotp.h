@@ -34,7 +34,7 @@ typedef struct IsoTpLink {
     /* multi-frame flags */
 	uint16_t                    send_sn;
 	uint16_t                    send_bs_remain; /* Remaining block size */
-	uint16_t                    send_st_min;    /* Separation Time between consecutive frames, unit millis */
+	uint32_t                    send_st_min;    /* Separation Time between consecutive frames, unit millis */
 	uint16_t                    send_wtf_count; /* Maximum number of FC.Wait frame transmissions  */
 	uint64_t                    send_timer_st;  /* Last time send consecutive frame */
     uint64_t                    send_timer_bs;  /* Time until reception of the next FlowControl N_PDU
