@@ -89,7 +89,7 @@ void isotp_poll(IsoTpLink *link);
  * @param data The data received via CAN.
  * @param len The length of the data received.
  */
-void isotp_on_can_message(IsoTpLink *link, uint8_t *data, uint8_t len);
+void isotp_on_can_message(IsoTpLink *link, uint8_t *data, uint16_t len);
 
 /**
  * @brief Sends ISO-TP frames via CAN, using the ID set in the initialising function.
