@@ -23,7 +23,7 @@
 
 /* ---------------------------- ISOTP Callbacks ---------------------------- */
 
-int isotp_user_send_can(const uint32_t arbitration_id, const uint8_t* data, const uint8_t size) {
+int isotp_user_send_can(const uint32_t arbitration_id, const uint8_t* data, const uint16_t size) {
     twai_message_t frame = {.identifier = arbitration_id, .data_length_code = size};
     memcpy(frame.data, data, sizeof(frame.data));
 	xQueueSend(tx_task_queue, &frame, portMAX_DELAY);
