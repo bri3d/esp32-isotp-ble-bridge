@@ -21,27 +21,27 @@ extern "C" {
  */
 typedef struct IsoTpLink {
     /* separation time */
-    uint8_t st_min;
+	uint16_t 					st_min;
     /* block size */
-    uint8_t default_block_size;
+	uint16_t					default_block_size;
     /* sender paramters */
     uint32_t                    send_arbitration_id; /* used to reply consecutive frame */
     /* message buffer */
-    uint8_t*                    send_buffer;
+	uint8_t*                    send_buffer;
     uint16_t                    send_buf_size;
     uint16_t                    send_size;
     uint16_t                    send_offset;
     /* multi-frame flags */
-    uint8_t                     send_sn;
-    uint16_t                    send_bs_remain; /* Remaining block size */
-    uint8_t                     send_st_min;    /* Separation Time between consecutive frames, unit millis */
-    uint8_t                     send_wtf_count; /* Maximum number of FC.Wait frame transmissions  */
+	uint16_t                    send_sn;
+	uint16_t                    send_bs_remain; /* Remaining block size */
+	uint16_t                    send_st_min;    /* Separation Time between consecutive frames, unit millis */
+	uint16_t                    send_wtf_count; /* Maximum number of FC.Wait frame transmissions  */
     uint32_t                    send_timer_st;  /* Last time send consecutive frame */    
     uint32_t                    send_timer_bs;  /* Time until reception of the next FlowControl N_PDU
                                                    start at sending FF, CF, receive FC
                                                    end at receive FC */
-    int                         send_protocol_result;
-    uint8_t                     send_status;
+	int16_t						send_protocol_result;
+	uint16_t					send_status;
 
     /* receiver paramters */
     uint32_t                    receive_arbitration_id;
@@ -51,13 +51,13 @@ typedef struct IsoTpLink {
     uint16_t                    receive_size;
     uint16_t                    receive_offset;
     /* multi-frame control */
-    uint8_t                     receive_sn;
-    uint8_t                     receive_bs_count; /* Maximum number of FC.Wait frame transmissions  */
+	uint16_t					receive_sn;
+	uint16_t					receive_bs_count; /* Maximum number of FC.Wait frame transmissions  */
     uint32_t                    receive_timer_cr; /* Time until transmission of the next ConsecutiveFrame N_PDU
                                                      start at sending FC, receive CF 
                                                      end at receive FC */
-    int                         receive_protocol_result;
-	uint8_t                     receive_status;
+    int16_t						receive_protocol_result;
+	uint16_t					receive_status;
 	uint16_t				   	stmin_override;
 } IsoTpLink;
 

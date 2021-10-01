@@ -30,8 +30,8 @@ int isotp_user_send_can(const uint32_t arbitration_id, const uint8_t* data, cons
     return ISOTP_RET_OK;                           
 }
 
-uint32_t isotp_user_get_ms(void) {
-    return (esp_timer_get_time() / 1000ULL) & 0xFFFFFFFF;
+uint32_t isotp_user_get_us(void) {
+	return esp_timer_get_time() & 0xFFFFFFFF;
 }
 
 void isotp_user_debug(const char* message, ...) {
@@ -72,7 +72,7 @@ static void isotp_processing_task(void *arg)
 			if(persist_enabled())
 			{
 				//send time stamp instead of rx/tx
-				uint32_t time = isotp_user_get_ms();
+				uint32_t time = (esp_timer_get_time() / 1000UL) & 0xFFFFFFFF;
 				uint16_t rxID = (time >> 16) & 0xFFFF;
 				uint16_t txID = time & 0xFFFF;
 				ble_send(txID, rxID, payload_buf, out_size);
@@ -146,9 +146,9 @@ bool parse_packet(ble_header_t* header, uint8_t* data)
 {
 	//set stmin override?
 	if(header->cmdFlags & BLE_COMMAND_FLAG_STMIN)
-	{
+	{   //confirm correct command size
 		if(header->cmdSize == 2)
-		{
+		{   //match rx/tx
 			for(uint16_t i = 0; i < NUM_ISOTP_LINK_CONTAINERS; i++)
 			{
 				IsoTpLinkContainer *isotp_link_container = &isotp_link_containers[i];
@@ -165,7 +165,7 @@ bool parse_packet(ble_header_t* header, uint8_t* data)
 	} else if(header->cmdFlags & BLE_COMMAND_FLAG_LED_COLOR)
 	{   //set led color?
 		if(header->cmdSize == 4)
-		{
+		{   //confirm correct command size
 			uint32_t* color = (uint32_t*)data;
 			led_setcolor(*color);
 			ESP_LOGI(BRIDGE_TAG, "Set led color [%08X]", *color);
