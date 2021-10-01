@@ -36,8 +36,8 @@ typedef struct IsoTpLink {
 	uint16_t                    send_bs_remain; /* Remaining block size */
 	uint16_t                    send_st_min;    /* Separation Time between consecutive frames, unit millis */
 	uint16_t                    send_wtf_count; /* Maximum number of FC.Wait frame transmissions  */
-    uint32_t                    send_timer_st;  /* Last time send consecutive frame */    
-    uint32_t                    send_timer_bs;  /* Time until reception of the next FlowControl N_PDU
+	uint64_t                    send_timer_st;  /* Last time send consecutive frame */
+    uint64_t                    send_timer_bs;  /* Time until reception of the next FlowControl N_PDU
                                                    start at sending FF, CF, receive FC
                                                    end at receive FC */
 	int16_t						send_protocol_result;
@@ -47,15 +47,16 @@ typedef struct IsoTpLink {
     uint32_t                    receive_arbitration_id;
     /* message buffer */
     uint8_t*                    receive_buffer;
-    uint16_t                    receive_buf_size;
+	uint16_t                    receive_buf_size;
     uint16_t                    receive_size;
     uint16_t                    receive_offset;
     /* multi-frame control */
 	uint16_t					receive_sn;
 	uint16_t					receive_bs_count; /* Maximum number of FC.Wait frame transmissions  */
-    uint32_t                    receive_timer_cr; /* Time until transmission of the next ConsecutiveFrame N_PDU
+    uint64_t                    receive_timer_cr; /* Time until transmission of the next ConsecutiveFrame N_PDU
                                                      start at sending FC, receive CF 
-                                                     end at receive FC */
+													 end at receive FC */
+
     int16_t						receive_protocol_result;
 	uint16_t					receive_status;
 	uint16_t				   	stmin_override;

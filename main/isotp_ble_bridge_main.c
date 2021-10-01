@@ -30,8 +30,8 @@ int isotp_user_send_can(const uint32_t arbitration_id, const uint8_t* data, cons
     return ISOTP_RET_OK;                           
 }
 
-uint32_t isotp_user_get_us(void) {
-	return esp_timer_get_time() & 0xFFFFFFFF;
+uint64_t isotp_user_get_us(void) {
+	return esp_timer_get_time();
 }
 
 void isotp_user_debug(const char* message, ...) {

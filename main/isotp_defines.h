@@ -40,9 +40,6 @@
 #define ISOTP_RET_TIMEOUT      -6
 #define ISOTP_RET_LENGTH       -7
 
-/* return logic true if 'a' is after 'b' */
-#define IsoTpTimeAfter(a,b) ((int32_t)((int32_t)(b) - (int32_t)(a)) < 0)
-
 /*  invalid bs */
 #define ISOTP_INVALID_BS       0xFFFF
 

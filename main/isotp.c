@@ -476,7 +476,7 @@ void isotp_poll(IsoTpLink *link) {
         if (/* send data if bs_remain is invalid or bs_remain large than zero */
         (ISOTP_INVALID_BS == link->send_bs_remain || link->send_bs_remain > 0) &&
 		/* and if st_min is zero or go beyond interval time */
-		(0 == link->send_st_min || (0 != link->send_st_min && IsoTpTimeAfter(isotp_user_get_us(), link->send_timer_st)))) {
+		(0 == link->send_st_min || (0 != link->send_st_min && isotp_user_get_us() > link->send_timer_st))) {
             
             ret = isotp_send_consecutive_frame(link);
             if (ISOTP_RET_OK == ret) {
@@ -496,7 +496,7 @@ void isotp_poll(IsoTpLink *link) {
         }
 
         /* check timeout */
-		if (IsoTpTimeAfter(isotp_user_get_us(), link->send_timer_bs)) {
+		if(isotp_user_get_us() > link->send_timer_bs) {
             link->send_protocol_result = ISOTP_PROTOCOL_RESULT_TIMEOUT_BS;
             link->send_status = ISOTP_SEND_STATUS_ERROR;
         }
@@ -506,7 +506,7 @@ void isotp_poll(IsoTpLink *link) {
     if (ISOTP_RECEIVE_STATUS_INPROGRESS == link->receive_status) {
         
         /* check timeout */
-		if (IsoTpTimeAfter(isotp_user_get_us(), link->receive_timer_cr)) {
+		if(isotp_user_get_us() > link->receive_timer_cr) {
             isotp_user_debug("isotp_poll: ISOTP_PROTOCOL_RESULT_TIMEOUT_CR\n");
             link->receive_protocol_result = ISOTP_PROTOCOL_RESULT_TIMEOUT_CR;
             link->receive_status = ISOTP_RECEIVE_STATUS_IDLE;

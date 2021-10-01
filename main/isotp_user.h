@@ -9,7 +9,7 @@ int  isotp_user_send_can(const uint32_t arbitration_id,
                          const uint8_t* data, const uint8_t size);
 
 /* user implemented, get microsecond */
-uint32_t isotp_user_get_us(void);
+uint64_t isotp_user_get_us(void);
 
 #endif // __ISOTP_H__
 
