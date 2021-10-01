@@ -6,12 +6,26 @@
 ///                 STATIC FUNCTIONS                ///
 ///////////////////////////////////////////////////////
 
-static uint16_t stmin_to_us(uint16_t ms)
+static uint32_t stmin_to_us(uint32_t ms)
 {
-	if(ms > 65)
-		return 0xFFFF;
+	if(ms <= 0x7F) {
+		return ms * 1000;
+	} else if(ms >= 0xF1 && ms <= 0xF9) {
+		return (ms - 0xF0) * 100;
+	}
 
-	return ms * 1000;
+	return 0;
+}
+
+static uint32_t us_to_stmin(uint32_t us)
+{
+	if(us <= 127000) {
+		return us / 1000;
+	} else if(us >= 100 && us <= 900) {
+		return 0xF0 + (us / 100);
+	}
+
+	return 0;
 }
 
 static int isotp_send_flow_control(IsoTpLink* link, uint16_t flow_status, uint16_t block_size, uint16_t st_min_us) {
@@ -22,7 +36,7 @@ static int isotp_send_flow_control(IsoTpLink* link, uint16_t flow_status, uint16
     message.as.flow_control.type = ISOTP_PCI_TYPE_FLOW_CONTROL_FRAME;
 	message.as.flow_control.FS = flow_status;
 	message.as.flow_control.BS = block_size;
-	message.as.flow_control.STmin = st_min_us / 1000 + 1;
+	message.as.flow_control.STmin = us_to_stmin(st_min_us);
 	/* send message */
 #ifdef ISO_TP_FRAME_PADDING
     (void) memset(message.as.flow_control.reserve, 0xAA, sizeof(message.as.flow_control.reserve));

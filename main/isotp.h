@@ -21,7 +21,7 @@ extern "C" {
  */
 typedef struct IsoTpLink {
     /* separation time */
-	uint16_t 					st_min;
+	uint32_t 					st_min;
     /* block size */
 	uint16_t					default_block_size;
     /* sender paramters */
