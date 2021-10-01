@@ -9,14 +9,17 @@
 #include "constants.h"
 #include "led.h"
 
-#define PERSIST_TAG					"Persist"
-#define MAX_MESSAGE_PERSIST			64
-#define PERSIST_MESSAGE_DELAY		2
+#define PERSIST_TAG							"Persist"
+#define MAX_MESSAGE_PERSIST					64
+#define PERSIST_DEFAULT_MESSAGE_DELAY		0
+#define PERSIST_DEFAULT_QUEUE_DELAY			2
 
 send_message_t msgPersist[MAX_MESSAGE_PERSIST];
 uint16_t msgPersistCount = 0;
 uint16_t msgPersistPosition = 0;
 uint16_t msgPersistEnabled = false;
+uint16_t msgPersistDelay = PERSIST_DEFAULT_MESSAGE_DELAY;
+uint16_t msgPersistQDelay = PERSIST_DEFAULT_QUEUE_DELAY;
 
 void persist_start()
 {
@@ -173,7 +176,28 @@ void persist_task(void *arg)
 	while(1) {
 		xSemaphoreTake(persist_message_send, pdMS_TO_TICKS(TIMEOUT_SHORT));
 		persist_send();
-		vTaskDelay(pdMS_TO_TICKS((SEND_QUEUE_SIZE-ble_queue_spaces())*PERSIST_MESSAGE_DELAY));
+		vTaskDelay(pdMS_TO_TICKS(msgPersistDelay + (ble_queue_waiting() * msgPersistQDelay)));
 	}
 	vTaskDelete(NULL);
 }
+
+void persist_set_delay(uint16_t delay)
+{
+	msgPersistDelay = delay;
+}
+
+void persist_set_q_delay(uint16_t delay)
+{
+	msgPersistQDelay = delay;
+}
+
+uint16_t persist_get_delay()
+{
+	return msgPersistDelay;
+}
+
+uint16_t persist_get_q_delay()
+{
+	return msgPersistQDelay;
+}
+

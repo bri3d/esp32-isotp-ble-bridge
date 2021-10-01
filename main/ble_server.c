@@ -37,6 +37,8 @@
 #define DEVICE_NAME_GAP          			"BLE_TO_ISOTP"    //The Device Name Characteristics in GAP
 #define SPP_SVC_INST_ID	            		0
 #define DEFAULT_MTU_SIZE					23
+#define DEFAULT_DELAY_SEND					0
+#define DEFAULT_DELAY_MULTI					0
 
 /// SPP Service
 static const uint16_t spp_service_uuid = 0xABF0;
@@ -55,19 +57,21 @@ static const uint8_t spp_adv_data[23] = {
     0x0F,0x09, 'B', 'L', 'E', '_', 'T', 'O', '_', 'I', 'S', 'O', 'T','P', '2', '0'
 };
 
-static bool kill_ble_tasks = false;
+static uint16_t ble_delay_send 					= DEFAULT_DELAY_SEND;
+static uint16_t ble_delay_multi					= DEFAULT_DELAY_MULTI;
+static bool kill_ble_tasks 						= false;
 static ble_server_callbacks server_callbacks;
 
-static uint16_t spp_mtu_size = DEFAULT_MTU_SIZE;
-static uint16_t spp_conn_id = 0xffff;
-static esp_gatt_if_t spp_gatts_if = 0xff;
-QueueHandle_t spp_send_queue = NULL;
-static QueueHandle_t cmd_cmd_queue = NULL;
-static SemaphoreHandle_t ble_congested;
+static uint16_t spp_mtu_size 					= DEFAULT_MTU_SIZE;
+static uint16_t spp_conn_id 					= 0xffff;
+static esp_gatt_if_t spp_gatts_if 				= 0xff;
+static QueueHandle_t spp_send_queue 			= NULL;
+static QueueHandle_t cmd_cmd_queue 				= NULL;
+static SemaphoreHandle_t ble_congested			= NULL;
 
-static bool enable_data_ntf = false;
-static bool is_connected = false;
-static esp_bd_addr_t spp_remote_bda = {0x0,};
+static bool enable_data_ntf 					= false;
+static bool is_connected 						= false;
+static esp_bd_addr_t spp_remote_bda 			= {0x0,};
 
 static uint16_t spp_handle_table[SPP_IDX_NB];
 
@@ -349,7 +353,7 @@ void send_task(void *pvParameters)
 					{
 						//Do we have any other responses ready to send?
 						send_message_t nextEvent;
-						if(xQueuePeek(spp_send_queue, (void * )&nextEvent, 0)) {
+						if(xQueuePeek(spp_send_queue, (void * )&nextEvent, ble_delay_multi)) {
 							//If we add this to the packet are we oversize?
 							if(nextEvent.msg_length + sizeof(ble_header_t) + dataLength <= (spp_mtu_size - 3)) {
 								//We are good, add it but first remove it from the Queue
@@ -414,6 +418,7 @@ void send_task(void *pvParameters)
 						memcpy(data_chunk, data, pack_size);
 						data_chunk[1] |= BLE_COMMAND_FLAG_SPLIT_PK;
 						esp_ble_gatts_send_indicate(spp_gatts_if, spp_conn_id, spp_handle_table[SPP_IDX_SPP_DATA_NTY_VAL], pack_size, data_chunk, false);
+						vTaskDelay(ble_delay_send);
 
 						//send the chunks
 						uint8_t chunk_num = 1;
@@ -433,7 +438,7 @@ void send_task(void *pvParameters)
 						free(data_chunk);
 					}
 					free(data);
-					vTaskDelay(0);
+					vTaskDelay(ble_delay_send);
 				}
 			}
 		}
@@ -720,13 +725,14 @@ void ble_server_shutdown()
 	vSemaphoreDelete(ble_congested);
 }
 
-void ble_send(uint32_t txID, uint32_t rxID, const void* src, size_t size)
+void ble_send(uint32_t txID, uint32_t rxID, uint8_t flags, const void* src, size_t size)
 {
 	send_message_t msg;
 	msg.buffer = malloc(size);
 	msg.msg_length = size;
 	msg.rxID = rxID;
 	msg.txID = txID;
+	msg.flags = flags;
 	memcpy(msg.buffer, src, size);
 	xQueueSend(spp_send_queue, &msg, 50 / portTICK_PERIOD_MS);
 }
@@ -739,4 +745,29 @@ bool ble_connected()
 uint16_t ble_queue_spaces()
 {
 	return uxQueueSpacesAvailable(spp_send_queue);
+}
+
+uint16_t ble_queue_waiting()
+{
+	return uxQueueMessagesWaiting(spp_send_queue);
+}
+
+void ble_set_delay_send(uint16_t delay)
+{
+	ble_delay_send = delay;
+}
+
+void ble_set_delay_multi(uint16_t delay)
+{
+	ble_delay_multi = delay;
+}
+
+uint16_t ble_get_delay_send()
+{
+	return ble_delay_send;
+}
+
+uint16_t ble_get_delay_multi()
+{
+	return ble_delay_multi;
 }

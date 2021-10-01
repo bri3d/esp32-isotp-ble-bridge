@@ -16,8 +16,9 @@
 #define BLE_COMMAND_FLAG_PER_CLEAR		2
 #define BLE_COMMAND_FLAG_PER_ADD		4
 #define BLE_COMMAND_FLAG_SPLIT_PK		8
-#define BLE_COMMAND_FLAG_LED_COLOR		16
-#define BLE_COMMAND_FLAG_STMIN			32
+#define BLE_COMMAND_FLAG_SETTINGS_GET	64
+#define BLE_COMMAND_FLAG_SETTINGS		128
+
 
 //BLE send queue size
 #define SEND_QUEUE_SIZE					64
@@ -55,6 +56,7 @@ typedef struct send_message{
 	uint8_t* buffer;
 	uint16_t rxID;
 	uint16_t txID;
+	uint8_t  flags;
 } send_message_t;
 
 // Header we expect to receive on BLE packets
@@ -75,6 +77,11 @@ typedef struct
 
 void ble_server_setup(ble_server_callbacks callbacks);
 void ble_server_shutdown();
-void ble_send(uint32_t txID, uint32_t rxID, const void* src, size_t size);
+void ble_send(uint32_t txID, uint32_t rxID, uint8_t flags, const void* src, size_t size);
 bool ble_connected();
 uint16_t ble_queue_spaces();
+uint16_t ble_queue_waiting();
+void ble_set_delay_send(uint16_t delay);
+void ble_set_delay_multi(uint16_t delay);
+uint16_t ble_get_delay_send();
+uint16_t ble_get_delay_multi();

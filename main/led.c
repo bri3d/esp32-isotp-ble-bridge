@@ -13,6 +13,8 @@
 
 #define LED_TAG 			"LED"
 
+uint32_t led_color = 0;
+
 void led_start()
 {
 	// Configure LED enable pin (switches transistor to push LED)
@@ -36,6 +38,11 @@ void led_stop()
 
 void led_setcolor(uint32_t color)
 {
-	ws2812_write_leds(color & 0xFFFFFF);
+	led_color = color;
+	ws2812_write_leds(led_color & 0xFFFFFF);
 }
 
+uint32_t led_getcolor()
+{
+	return led_color;
+}

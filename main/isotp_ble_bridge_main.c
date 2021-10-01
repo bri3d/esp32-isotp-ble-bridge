@@ -75,10 +75,10 @@ static void isotp_processing_task(void *arg)
 				uint32_t time = (esp_timer_get_time() / 1000UL) & 0xFFFFFFFF;
 				uint16_t rxID = (time >> 16) & 0xFFFF;
 				uint16_t txID = time & 0xFFFF;
-				ble_send(txID, rxID, payload_buf, out_size);
+				ble_send(txID, rxID, 0, payload_buf, out_size);
 				xSemaphoreGive(persist_message_send);
 			} else {
-				ble_send(link_ptr->receive_arbitration_id, link_ptr->send_arbitration_id, payload_buf, out_size);
+				ble_send(link_ptr->receive_arbitration_id, link_ptr->send_arbitration_id, 0, payload_buf, out_size);
 			}
         }
         vTaskDelay(0); // Allow higher priority tasks to run, for example Rx/Tx
@@ -144,32 +144,147 @@ void split_clear()
 
 bool parse_packet(ble_header_t* header, uint8_t* data)
 {
-	//set stmin override?
-	if(header->cmdFlags & BLE_COMMAND_FLAG_STMIN)
-	{   //confirm correct command size
-		if(header->cmdSize == 2)
-		{   //match rx/tx
-			for(uint16_t i = 0; i < NUM_ISOTP_LINK_CONTAINERS; i++)
+	//Is client trying to set a setting?
+	if(header->cmdFlags & BLE_COMMAND_FLAG_SETTINGS)
+	{
+		//Are we settings or sending a setting?
+		if(header->cmdFlags & BLE_COMMAND_FLAG_SETTINGS_GET)
+		{   //Make sure payload is empty
+			if(header->cmdSize == 0)
 			{
-				IsoTpLinkContainer *isotp_link_container = &isotp_link_containers[i];
-				if(header->rxID == isotp_link_container->link.receive_arbitration_id &&
-					header->txID == isotp_link_container->link.send_arbitration_id)
+				//send requested information
+				switch(header->cmdFlags ^ (BLE_COMMAND_FLAG_SETTINGS | BLE_COMMAND_FLAG_SETTINGS_GET))
 				{
-					uint16_t* stmin = (uint16_t*)data;
-					isotp_link_container->link.stmin_override = *stmin;
-					ESP_LOGI(BRIDGE_TAG, "Set stmin [%04X] on container [%02X]", *stmin, i);
-					return true;
+					case BRG_SETTING_ISOTP_STMIN:
+						for(uint16_t i = 0; i < NUM_ISOTP_LINK_CONTAINERS; i++)
+						{
+							IsoTpLinkContainer *isotp_link_container = &isotp_link_containers[i];
+							if(header->rxID == isotp_link_container->link.receive_arbitration_id &&
+								header->txID == isotp_link_container->link.send_arbitration_id)
+							{
+								uint16_t* stmin = malloc(sizeof(uint16_t));
+								*stmin = isotp_link_container->link.stmin_override;
+								ESP_LOGI(BRIDGE_TAG, "Sending stmin [%04X] from container [%02X]", *stmin, i);
+								ble_send(isotp_link_container->link.receive_arbitration_id, isotp_link_container->link.send_arbitration_id, BLE_COMMAND_FLAG_SETTINGS | BRG_SETTING_ISOTP_STMIN, stmin, sizeof(uint16_t));
+							}
+						}
+						break;
+					case BRG_SETTING_LED_COLOR:
+						{
+							uint32_t* color = malloc(sizeof(uint32_t));
+							*color = led_getcolor();
+							ESP_LOGI(BRIDGE_TAG, "Sending color [%06X]", *color);
+							ble_send(0, 0, BLE_COMMAND_FLAG_SETTINGS | BRG_SETTING_LED_COLOR, color, sizeof(uint32_t));
+						}
+						break;
+					case BRG_SETTING_PERSIST_DELAY:
+						{
+							uint16_t* delay = malloc(sizeof(uint16_t));
+							*delay = persist_get_delay();
+							ESP_LOGI(BRIDGE_TAG, "Sending persist delay [%04X]", *delay);
+							ble_send(0, 0, BLE_COMMAND_FLAG_SETTINGS | BRG_SETTING_PERSIST_DELAY, delay, sizeof(uint16_t));
+						}
+						break;
+					case BRG_SETTING_PERSIST_Q_DELAY:
+						{
+							uint16_t* delay = malloc(sizeof(uint16_t));
+							*delay = persist_get_q_delay();
+							ESP_LOGI(BRIDGE_TAG, "Sending persist queue delay [%04X]", *delay);
+							ble_send(0, 0, BLE_COMMAND_FLAG_SETTINGS | BRG_SETTING_PERSIST_Q_DELAY, delay, sizeof(uint16_t));
+						}
+						break;
+					case BRG_SETTING_BLE_SEND_DELAY:
+						{
+							uint16_t* delay = malloc(sizeof(uint16_t));
+							*delay = ble_get_delay_send();
+							ESP_LOGI(BRIDGE_TAG, "Sending BLE send delay [%04X]", *delay);
+							ble_send(0, 0, BLE_COMMAND_FLAG_SETTINGS | BRG_SETTING_BLE_SEND_DELAY, delay, sizeof(uint16_t));
+						}
+						break;
+					case BRG_SETTING_BLE_MULTI_DELAY:
+						{
+							uint16_t* delay = malloc(sizeof(uint16_t));
+							*delay = ble_get_delay_multi();
+							ESP_LOGI(BRIDGE_TAG, "Sending BLE send delay [%04X]", *delay);
+							ble_send(0, 0, BLE_COMMAND_FLAG_SETTINGS | BRG_SETTING_BLE_MULTI_DELAY, delay, sizeof(uint16_t));
+						}
+						break;
 				}
+				return true;
 			}
-		}
-	} else if(header->cmdFlags & BLE_COMMAND_FLAG_LED_COLOR)
-	{   //set led color?
-		if(header->cmdSize == 4)
-		{   //confirm correct command size
-			uint32_t* color = (uint32_t*)data;
-			led_setcolor(*color);
-			ESP_LOGI(BRIDGE_TAG, "Set led color [%08X]", *color);
-			return true;
+		} else {
+			switch(header->cmdFlags ^ BLE_COMMAND_FLAG_SETTINGS)
+			{
+				case BRG_SETTING_ISOTP_STMIN:
+					//check size
+					if(header->cmdSize == 2)
+					{   //match rx/tx
+						for(uint16_t i = 0; i < NUM_ISOTP_LINK_CONTAINERS; i++)
+						{
+							IsoTpLinkContainer *isotp_link_container = &isotp_link_containers[i];
+							if(header->rxID == isotp_link_container->link.receive_arbitration_id &&
+								header->txID == isotp_link_container->link.send_arbitration_id)
+							{
+								uint16_t* stmin = (uint16_t*)data;
+								isotp_link_container->link.stmin_override = *stmin;
+								ESP_LOGI(BRIDGE_TAG, "Set stmin [%04X] on container [%02X]", *stmin, i);
+								return true;
+							}
+						}
+					}
+					break;
+
+				case BRG_SETTING_LED_COLOR:
+					//check size
+					if(header->cmdSize == 4)
+					{
+						uint32_t* color = (uint32_t*)data;
+						led_setcolor(*color);
+						ESP_LOGI(BRIDGE_TAG, "Set led color [%08X]", *color);
+						return true;
+					}
+					break;
+				case BRG_SETTING_PERSIST_DELAY:
+					//check size
+					if(header->cmdSize == 2)
+					{   //confirm correct command size
+						uint16_t* delay = (uint16_t*)data;
+						persist_set_delay(*delay);
+						ESP_LOGI(BRIDGE_TAG, "Set persist delay [%08X]", *delay);
+						return true;
+					}
+					break;
+				case BRG_SETTING_PERSIST_Q_DELAY:
+					//check size
+					if(header->cmdSize == 2)
+					{   //confirm correct command size
+						uint16_t* delay = (uint16_t*)data;
+						persist_set_delay(*delay);
+						ESP_LOGI(BRIDGE_TAG, "Set persist queue delay [%08X]", *delay);
+						return true;
+					}
+					break;
+				case BRG_SETTING_BLE_SEND_DELAY:
+					//check size
+					if(header->cmdSize == 2)
+					{   //confirm correct command size
+						uint16_t* delay = (uint16_t*)data;
+						ble_set_delay_send(*delay);
+						ESP_LOGI(BRIDGE_TAG, "Set BLE send delay [%08X]", *delay);
+						return true;
+					}
+					break;
+				case BRG_SETTING_BLE_MULTI_DELAY:
+					//check size
+					if(header->cmdSize == 2)
+					{   //confirm correct command size
+						uint16_t* delay = (uint16_t*)data;
+						ble_set_delay_multi(*delay);
+						ESP_LOGI(BRIDGE_TAG, "Set BLE wait for queue item [%08X]", *delay);
+						return true;
+					}
+					break;
+			}
 		}
 	} else if(persist_enabled())
 	{   //Are we in persistent mode?
