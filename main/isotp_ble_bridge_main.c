@@ -157,6 +157,7 @@ bool parse_packet(ble_header_t* header, uint8_t* data)
 				{
 					uint16_t* stmin = (uint16_t*)data;
 					isotp_link_container->link.stmin_override = *stmin;
+					ESP_LOGI(BRIDGE_TAG, "Set stmin [%04X] on container [%02X]", *stmin, i);
 					return true;
 				}
 			}
@@ -167,6 +168,7 @@ bool parse_packet(ble_header_t* header, uint8_t* data)
 		{
 			uint32_t* color = (uint32_t*)data;
 			led_setcolor(*color);
+			ESP_LOGI(BRIDGE_TAG, "Set led color [%08X]", *color);
 			return true;
 		}
 	} else if(persist_enabled())
