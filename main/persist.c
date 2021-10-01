@@ -10,16 +10,17 @@
 #include "led.h"
 
 #define PERSIST_TAG							"Persist"
+
 #define MAX_MESSAGE_PERSIST					64
-#define PERSIST_DEFAULT_MESSAGE_DELAY		0
-#define PERSIST_DEFAULT_QUEUE_DELAY			2
+#define PERSIST_DEFAULT_MESSAGE_DELAY		10
+#define PERSIST_DEFAULT_QUEUE_DELAY			5
 
 send_message_t msgPersist[MAX_MESSAGE_PERSIST];
-uint16_t msgPersistCount = 0;
-uint16_t msgPersistPosition = 0;
-uint16_t msgPersistEnabled = false;
-uint16_t msgPersistDelay = PERSIST_DEFAULT_MESSAGE_DELAY;
-uint16_t msgPersistQDelay = PERSIST_DEFAULT_QUEUE_DELAY;
+uint16_t msgPersistCount 		= 0;
+uint16_t msgPersistPosition 	= 0;
+uint16_t msgPersistEnabled 		= false;
+uint16_t msgPersistDelay 		= PERSIST_DEFAULT_MESSAGE_DELAY;
+uint16_t msgPersistQDelay 		= PERSIST_DEFAULT_QUEUE_DELAY;
 
 void persist_start()
 {
@@ -42,7 +43,7 @@ int16_t persist_send()
 	{
 		//clear messages
 		msgPersistEnabled = false;
-		for(int i=0; i<msgPersistCount; i++)
+		for(uint16_t i=0; i<msgPersistCount; i++)
 		{
 			if(msgPersist[i].buffer)
 			{
@@ -154,7 +155,7 @@ void persist_clear()
 {
 	xSemaphoreTake(persist_message_mutex, pdMS_TO_TICKS(TIMEOUT_NORMAL));
 	msgPersistEnabled = false;
-	for(int i=0; i<msgPersistCount; i++)
+	for(uint16_t i=0; i<msgPersistCount; i++)
 	{
 		if(msgPersist[i].buffer)
 		{
