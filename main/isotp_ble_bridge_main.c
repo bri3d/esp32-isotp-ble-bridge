@@ -217,7 +217,7 @@ bool parse_packet(ble_header_t* header, uint8_t* data)
 			{
 				case BRG_SETTING_ISOTP_STMIN:
 					//check size
-					if(header->cmdSize == 2)
+					if(header->cmdSize == sizeof(uint16_t))
 					{   //match rx/tx
 						for(uint16_t i = 0; i < NUM_ISOTP_LINK_CONTAINERS; i++)
 						{
@@ -236,7 +236,7 @@ bool parse_packet(ble_header_t* header, uint8_t* data)
 
 				case BRG_SETTING_LED_COLOR:
 					//check size
-					if(header->cmdSize == 4)
+					if(header->cmdSize == sizeof(uint32_t))
 					{
 						uint32_t* color = (uint32_t*)data;
 						led_setcolor(*color);
@@ -246,7 +246,7 @@ bool parse_packet(ble_header_t* header, uint8_t* data)
 					break;
 				case BRG_SETTING_PERSIST_DELAY:
 					//check size
-					if(header->cmdSize == 2)
+					if(header->cmdSize == sizeof(uint16_t))
 					{   //confirm correct command size
 						uint16_t* delay = (uint16_t*)data;
 						persist_set_delay(*delay);
@@ -256,7 +256,7 @@ bool parse_packet(ble_header_t* header, uint8_t* data)
 					break;
 				case BRG_SETTING_PERSIST_Q_DELAY:
 					//check size
-					if(header->cmdSize == 2)
+					if(header->cmdSize == sizeof(uint16_t))
 					{   //confirm correct command size
 						uint16_t* delay = (uint16_t*)data;
 						persist_set_delay(*delay);
@@ -266,7 +266,7 @@ bool parse_packet(ble_header_t* header, uint8_t* data)
 					break;
 				case BRG_SETTING_BLE_SEND_DELAY:
 					//check size
-					if(header->cmdSize == 2)
+					if(header->cmdSize == sizeof(uint16_t))
 					{   //confirm correct command size
 						uint16_t* delay = (uint16_t*)data;
 						ble_set_delay_send(*delay);
@@ -276,7 +276,7 @@ bool parse_packet(ble_header_t* header, uint8_t* data)
 					break;
 				case BRG_SETTING_BLE_MULTI_DELAY:
 					//check size
-					if(header->cmdSize == 2)
+					if(header->cmdSize == sizeof(uint16_t))
 					{   //confirm correct command size
 						uint16_t* delay = (uint16_t*)data;
 						ble_set_delay_multi(*delay);
