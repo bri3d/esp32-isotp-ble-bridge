@@ -12,8 +12,8 @@
 #define PERSIST_TAG							"Persist"
 
 #define MAX_MESSAGE_PERSIST					64
-#define PERSIST_DEFAULT_MESSAGE_DELAY		10
-#define PERSIST_DEFAULT_QUEUE_DELAY			5
+#define PERSIST_DEFAULT_MESSAGE_DELAY		20
+#define PERSIST_DEFAULT_QUEUE_DELAY			10
 
 send_message_t msgPersist[MAX_MESSAGE_PERSIST];
 uint16_t msgPersistCount 		= 0;
@@ -175,7 +175,7 @@ void persist_clear()
 void persist_task(void *arg)
 {
 	while(1) {
-		xSemaphoreTake(persist_message_send, pdMS_TO_TICKS(TIMEOUT_SHORT));
+		xSemaphoreTake(persist_message_send, pdMS_TO_TICKS(TIMEOUT_NORMAL));
 		persist_send();
 		vTaskDelay(pdMS_TO_TICKS(msgPersistDelay + (ble_queue_waiting() * msgPersistQDelay)));
 	}

@@ -259,7 +259,7 @@ bool parse_packet(ble_header_t* header, uint8_t* data)
 					if(header->cmdSize == sizeof(uint16_t))
 					{   //confirm correct command size
 						uint16_t* delay = (uint16_t*)data;
-						persist_set_delay(*delay);
+						persist_set_q_delay(*delay);
 						ESP_LOGI(BRIDGE_TAG, "Set persist queue delay [%08X]", *delay);
 						return true;
 					}
