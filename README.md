@@ -2,7 +2,15 @@
 
 The goal of this project is to build a native Macchina A0 firmware which can bridge BLE to ISOTP.
 
-This project is built using the ESP32 native toolchain ESP-IDF (based on FreeRTOS) and can be compiled using `idf.py build` .
+This project is built using the ESP32 native toolchain ESP-IDF (based on FreeRTOS) and can be compiled using `idf.py build`.
+
+# Currently supported software:
+
+VWflashtools, android based logger:
+https://github.com/Switchleg1/VWFlashTools
+
+VW_Flash, python based ecu flashing and logging software:
+https://github.com/bri3d/VW_Flash
 
 # A few notes about Macchina A0
 
