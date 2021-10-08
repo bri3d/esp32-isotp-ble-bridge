@@ -34,7 +34,7 @@
 #define SPP_PROFILE_NUM             		1
 #define SPP_PROFILE_APP_IDX         		0
 #define ESP_SPP_APP_ID              		0x56
-#define DEVICE_NAME_GAP          			"BLE_TO_ISOTP"    //The Device Name Characteristics in GAP
+#define DEVICE_NAME_GAP          			"BLE_TO_ISOTP20"    //The Device Name Characteristics in GAP
 #define SPP_SVC_INST_ID	            		0
 #define DEFAULT_MTU_SIZE					23
 #define DEFAULT_DELAY_SEND					0
