@@ -6,8 +6,8 @@ This project is built using the ESP32 native toolchain ESP-IDF (based on FreeRTO
 
 # Currently supported software:
 
-VWflashtools, android based logger:
-https://github.com/Switchleg1/VWFlashTools
+Simos Logger, android based logger:
+https://github.com/Switchleg1/Simos-Tools
 
 VW_Flash, python based ecu flashing and logging software:
 https://github.com/bri3d/VW_Flash
