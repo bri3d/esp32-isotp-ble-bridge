@@ -32,7 +32,8 @@
 #define TIMEOUT_LONG					1000
 #define TIMEOUT_CONGESTION				5000
 
-#define DEEP_SLEEP_TIME					4000000
-#define WAKE_TIME						1000
+#define USE_DEEP_SLEEP					true
+#define DEEP_SLEEP_TIME					2000000
+#define WAKE_TIME						2000
 
 #endif

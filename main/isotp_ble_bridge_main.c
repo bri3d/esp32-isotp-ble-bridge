@@ -23,6 +23,8 @@
 
 #define BRIDGE_TAG 					"Bridge"
 
+bool ble_connection = false;
+
 /* ---------------------------- ISOTP Callbacks ---------------------------- */
 
 int isotp_user_send_can(const uint32_t arbitration_id, const uint8_t* data, const uint16_t size) {
@@ -40,6 +42,24 @@ void isotp_user_debug(const char* message, ...) {
 }
 
 /* --------------------------- Tasks and Functions -------------------------- */
+
+bool setCpuFrequencyMhz(uint16_t freq)
+{
+	//Constrain cpu speed
+	if(freq > 240)
+		freq = 240;
+	if(freq < 80)
+		freq = 80;
+
+	//set config
+	esp_pm_config_esp32_t cpu_config;
+	cpu_config.max_freq_mhz = freq;
+	cpu_config.min_freq_mhz = 40;
+	cpu_config.light_sleep_enable = false;
+
+	//set cpu speed and return result
+	return esp_pm_configure(&cpu_config);
+}
 
 static void isotp_processing_task(void *arg)
 {
@@ -442,15 +462,29 @@ void received_from_ble(const void* src, size_t size)
 	}
 }
 
-bool ble_connection = false;
 void notifications_disabled() {
+	//set led to low red
 	led_setcolor(LED_RED_QRT);
-	esp_sleep_enable_timer_wakeup(DEEP_SLEEP_TIME);
-	esp_deep_sleep_start();
+
+	//set slow speed
+	setCpuFrequencyMhz(40);
+
+	//go to sleep
+	if(USE_DEEP_SLEEP)
+	{
+		esp_sleep_enable_timer_wakeup(DEEP_SLEEP_TIME);
+		esp_deep_sleep_start();
+	}
 }
 
 void notifications_enabled() {
+	//set to green
 	led_setcolor(LED_GREEN_HALF);
+
+	//set full speed
+	setCpuFrequencyMhz(240);
+
+	//we have connection, stay awake
 	ble_connection = true;
 }
 
@@ -510,10 +544,12 @@ void app_main(void)
 	xTaskCreatePinnedToCore(isotp_send_queue_task, "ISOTP_process_send_queue", 4096, NULL, MAIN_TSK_PRIO, NULL, tskNO_AFFINITY);
 	xTaskCreatePinnedToCore(persist_task, "PERSIST_process", 4096, NULL, PERSIST_TSK_PRIO, NULL, tskNO_AFFINITY);
 
+	//set slow speed
+	setCpuFrequencyMhz(80);
 
 	//If we don't get connection, sleep
 	vTaskDelay(pdMS_TO_TICKS(WAKE_TIME));
-	if(ble_connection == false) {
+	if(USE_DEEP_SLEEP && ble_connection == false) {
 		esp_sleep_enable_timer_wakeup(DEEP_SLEEP_TIME);
 		esp_deep_sleep_start();
 	}
