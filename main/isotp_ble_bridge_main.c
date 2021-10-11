@@ -23,8 +23,6 @@
 
 #define BRIDGE_TAG 					"Bridge"
 
-bool ble_connection = false;
-
 /* ---------------------------- ISOTP Callbacks ---------------------------- */
 
 int isotp_user_send_can(const uint32_t arbitration_id, const uint8_t* data, const uint16_t size) {
@@ -43,18 +41,12 @@ void isotp_user_debug(const char* message, ...) {
 
 /* --------------------------- Tasks and Functions -------------------------- */
 
-bool setCpuFrequencyMhz(uint16_t freq)
+bool setCpuFrequencyMhz(uint16_t max, uint16_t min)
 {
-	//Constrain cpu speed
-	if(freq > 240)
-		freq = 240;
-	if(freq < 80)
-		freq = 80;
-
 	//set config
 	esp_pm_config_esp32_t cpu_config;
-	cpu_config.max_freq_mhz = freq;
-	cpu_config.min_freq_mhz = 40;
+	cpu_config.max_freq_mhz = max;
+	cpu_config.min_freq_mhz = min;
 	cpu_config.light_sleep_enable = false;
 
 	//set cpu speed and return result
@@ -110,7 +102,6 @@ static void isotp_processing_task(void *arg)
 
 static void isotp_send_queue_task(void *arg)
 {
-    xSemaphoreTake(isotp_send_queue_sem, portMAX_DELAY);
     while (1)
     {
         twai_status_info_t status_info;
@@ -462,19 +453,13 @@ void received_from_ble(const void* src, size_t size)
 	}
 }
 
-void notifications_disabled() {
+void notifications_disabled()
+{
 	//set led to low red
 	led_setcolor(LED_RED_QRT);
 
 	//set slow speed
-	setCpuFrequencyMhz(40);
-
-	//go to sleep
-	if(USE_DEEP_SLEEP)
-	{
-		esp_sleep_enable_timer_wakeup(DEEP_SLEEP_TIME);
-		esp_deep_sleep_start();
-	}
+	setCpuFrequencyMhz(80, 10);
 }
 
 void notifications_enabled() {
@@ -482,16 +467,22 @@ void notifications_enabled() {
 	led_setcolor(LED_GREEN_HALF);
 
 	//set full speed
-	setCpuFrequencyMhz(240);
+	setCpuFrequencyMhz(240, 40);
+}
 
-	//we have connection, stay awake
-	ble_connection = true;
+void start_tasks()
+{
+}
+
+void end_tasks()
+{
 }
 
 /* ------------ Primary startup ---------------- */
 void app_main(void)
 {
-	ble_connection = false;
+	//set slow speed
+	setCpuFrequencyMhz(80, 10);
 
 	//start LED handling service
 	led_start();
@@ -502,7 +493,7 @@ void app_main(void)
         .notifications_subscribed = notifications_enabled,
         .notifications_unsubscribed = notifications_disabled
     };
-    ble_server_setup(callbacks);
+	ble_server_setup(callbacks);
 
     // Need to pull down GPIO 21 to unset the "S" (Silent Mode) pin on CAN Xceiver.
     gpio_config_t io_conf;
@@ -517,15 +508,13 @@ void app_main(void)
 	//init twai can controller
 	twai_install();
 
-    //Create semaphores and tasks
+	//create mutexs, queues and configure links
+	done_sem = xSemaphoreCreateBinary();
+	isotp_mutex = xSemaphoreCreateMutex();
 	tx_task_queue = xQueueCreate(TASK_QUEUE_SIZE, sizeof(twai_message_t));
 	isotp_send_message_queue = xQueueCreate(MESSAGE_QUEUE_SIZE, sizeof(send_message_t));
-	done_sem = xSemaphoreCreateBinary();
-	isotp_send_queue_sem = xSemaphoreCreateBinary();
-	isotp_mutex = xSemaphoreCreateMutex();
 	configure_isotp_links();
 	persist_start();
-	xSemaphoreGive(isotp_send_queue_sem);
 
     // Tasks :
     // "TWAI_rx" polls the receive queue (blocking) and once a message exists, forwards it into the ISO-TP library.
@@ -544,27 +533,5 @@ void app_main(void)
 	xTaskCreatePinnedToCore(isotp_send_queue_task, "ISOTP_process_send_queue", 4096, NULL, MAIN_TSK_PRIO, NULL, tskNO_AFFINITY);
 	xTaskCreatePinnedToCore(persist_task, "PERSIST_process", 4096, NULL, PERSIST_TSK_PRIO, NULL, tskNO_AFFINITY);
 
-	//set slow speed
-	setCpuFrequencyMhz(80);
-
-	//If we don't get connection, sleep
-	vTaskDelay(pdMS_TO_TICKS(WAKE_TIME));
-	if(USE_DEEP_SLEEP && ble_connection == false) {
-		esp_sleep_enable_timer_wakeup(DEEP_SLEEP_TIME);
-		esp_deep_sleep_start();
-	}
-
 	xSemaphoreTake(done_sem, portMAX_DELAY);
-
-	persist_stop();
-	ble_server_shutdown();
-	twai_uninstall();
-	disable_isotp_links();
-	led_stop();
-
-	vSemaphoreDelete(isotp_send_queue_sem);
-    vSemaphoreDelete(done_sem);
-	vSemaphoreDelete(isotp_mutex);
-    vQueueDelete(tx_task_queue);
-    vQueueDelete(isotp_send_message_queue);
 }

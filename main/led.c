@@ -28,7 +28,7 @@ void led_start()
 	gpio_set_level(LED_ENABLE_GPIO_NUM, 0);
 
 	ws2812_control_init(LED_GPIO_NUM);
-	led_setcolor(LED_RED_HALF);
+	led_setcolor(LED_RED_QRT);
 }
 
 void led_stop()
