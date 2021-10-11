@@ -4,6 +4,8 @@
 #include "freertos/task.h"
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
+#include "esp_pm.h"
+#include "esp_sleep.h"
 #include "esp_err.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -51,7 +53,7 @@ static void isotp_processing_task(void *arg)
         {
             // Link is idle, wait for new data before pumping loop.
 			xSemaphoreTake(isotp_link_container->wait_for_isotp_data_sem, portMAX_DELAY);
-        }
+		}
         // poll
 		xSemaphoreTake(isotp_mutex, pdMS_TO_TICKS(TIMEOUT_NORMAL));
         isotp_poll(link_ptr);
@@ -147,7 +149,7 @@ bool parse_packet(ble_header_t* header, uint8_t* data)
 	//Is client trying to set a setting?
 	if(header->cmdFlags & BLE_COMMAND_FLAG_SETTINGS)
 	{
-		//Are we settings or sending a setting?
+		//Are we setting or getting?
 		if(header->cmdFlags & BLE_COMMAND_FLAG_SETTINGS_GET)
 		{   //Make sure payload is empty
 			if(header->cmdSize == 0)
@@ -212,7 +214,7 @@ bool parse_packet(ble_header_t* header, uint8_t* data)
 				}
 				return true;
 			}
-		} else {
+		} else { //Setting
 			switch(header->cmdFlags ^ BLE_COMMAND_FLAG_SETTINGS)
 			{
 				case BRG_SETTING_ISOTP_STMIN:
@@ -440,17 +442,23 @@ void received_from_ble(const void* src, size_t size)
 	}
 }
 
+bool ble_connection = false;
 void notifications_disabled() {
-	led_setcolor(LED_RED_HALF);
+	led_setcolor(LED_RED_QRT);
+	esp_sleep_enable_timer_wakeup(DEEP_SLEEP_TIME);
+	esp_deep_sleep_start();
 }
 
 void notifications_enabled() {
 	led_setcolor(LED_GREEN_HALF);
+	ble_connection = true;
 }
 
 /* ------------ Primary startup ---------------- */
 void app_main(void)
 {
+	ble_connection = false;
+
 	//start LED handling service
 	led_start();
 
@@ -501,6 +509,14 @@ void app_main(void)
 	xTaskCreatePinnedToCore(isotp_processing_task, "dtc_ISOTP_process", 4096, &isotp_link_containers[4], ISOTP_TSK_PRIO, NULL, tskNO_AFFINITY);
 	xTaskCreatePinnedToCore(isotp_send_queue_task, "ISOTP_process_send_queue", 4096, NULL, MAIN_TSK_PRIO, NULL, tskNO_AFFINITY);
 	xTaskCreatePinnedToCore(persist_task, "PERSIST_process", 4096, NULL, PERSIST_TSK_PRIO, NULL, tskNO_AFFINITY);
+
+
+	//If we don't get connection, sleep
+	vTaskDelay(pdMS_TO_TICKS(WAKE_TIME));
+	if(ble_connection == false) {
+		esp_sleep_enable_timer_wakeup(DEEP_SLEEP_TIME);
+		esp_deep_sleep_start();
+	}
 
 	xSemaphoreTake(done_sem, portMAX_DELAY);
 
