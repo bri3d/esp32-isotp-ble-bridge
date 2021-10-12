@@ -1,5 +1,13 @@
 To flash firmware to the A0
 ---------------------------
+
+Option 1
+---------
+Download the A0_FW_Updater.zip and run updater.bat
+
+
+Option 2
+---------
 Download the flash download tool from Espressif Systems.
 https://www.espressif.com/sites/default/files/tools/flash_download_tool_3.9.0_0.zip
 
