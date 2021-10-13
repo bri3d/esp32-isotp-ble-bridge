@@ -37,6 +37,7 @@ uint64_t isotp_user_get_us(void) {
 }
 
 void isotp_user_debug(const char* message, ...) {
+	ESP_LOGD(BRIDGE_TAG, "ISOTP: %s", message);
 }
 
 /* --------------------------- Tasks and Functions -------------------------- */
@@ -79,7 +80,7 @@ static void isotp_processing_task(void *arg)
         if (ISOTP_RET_OK == ret) {
 			ESP_LOGI(BRIDGE_TAG, "Received ISO-TP message with length: %04X", out_size);
             for (int i = 0; i < out_size; i++) {
-                ESP_LOGD(BRIDGE_TAG, "payload_buf[%d] = %02x", i, payload_buf[i]);
+				ESP_LOGD(BRIDGE_TAG, "payload_buf[%d] = %02x", i, payload_buf[i]);
 			}
 
 			//Are we in persist mode?
