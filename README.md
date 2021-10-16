@@ -4,6 +4,9 @@ The goal of this project is to build a native Macchina A0 firmware which can bri
 
 This project is built using the ESP32 native toolchain ESP-IDF (based on FreeRTOS) and can be compiled using `idf.py build`.
 
+Or download and flash precompiled firmware:
+https://github.com/Switchleg1/esp32-isotp-ble-bridge/tree/BridgeLEG/release
+
 # Currently supported software:
 
 Simos Logger, android based logger:
