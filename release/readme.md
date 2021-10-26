@@ -1,6 +1,9 @@
 To flash firmware to the A0
 ---------------------------
 
+If the A0 comes up in windows device manager but the drivers are not found you can download them at:
+https://www.silabs.com/developers/usb-to-uart-bridge-vcp-drivers
+
 Option 1
 ---------
 Download the A0_FW_Updater.zip and run updater.bat
