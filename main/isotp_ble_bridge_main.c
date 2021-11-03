@@ -96,7 +96,7 @@ static void isotp_processing_task(void *arg)
 				ble_send(link_ptr->receive_arbitration_id, link_ptr->send_arbitration_id, 0, payload_buf, out_size);
 			}
         }
-        vTaskDelay(0); // Allow higher priority tasks to run, for example Rx/Tx
+		taskYIELD(); // Allow higher priority tasks to run, for example Rx/Tx
     }
     vTaskDelete(NULL);
 }
@@ -131,7 +131,8 @@ static void isotp_send_queue_task(void *arg)
 				break;
             }
 		}
-        free(msg.buffer);
+		free(msg.buffer);
+		taskYIELD();
 	}
     vTaskDelete(NULL);
 }
@@ -313,7 +314,7 @@ bool parse_packet(ble_header_t* header, uint8_t* data)
 		{
 			persist_set(false);
 		} else {
-			//If we are still in persist mode only accept LED color change
+			//If we are still in persist mode only accept setting changes
 			return false;
 		}
 	} else
@@ -469,14 +470,6 @@ void notifications_enabled() {
 
 	//set full speed
 	setCpuFrequencyMhz(240, 40);
-}
-
-void start_tasks()
-{
-}
-
-void end_tasks()
-{
 }
 
 /* ------------ Primary startup ---------------- */

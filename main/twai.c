@@ -75,7 +75,7 @@ void twai_receive_task(void *arg)
 		if(twai_rx_msg.identifier == isotp_link_container->link.receive_arbitration_id) {
 			twai_send_isotp_message(isotp_link_container, &twai_rx_msg);
 		} else {
-			for(int i = 0; i < NUM_ISOTP_LINK_CONTAINERS; ++i) {
+			for(uint16_t i = 0; i < NUM_ISOTP_LINK_CONTAINERS; i++) {
 				isotp_link_container = &isotp_link_containers[i];
 				if(twai_rx_msg.identifier == isotp_link_container->link.receive_arbitration_id) {
 					twai_send_isotp_message(isotp_link_container, &twai_rx_msg);
@@ -83,7 +83,7 @@ void twai_receive_task(void *arg)
 				}
 			}
 		}
-		vTaskDelay(0);
+		taskYIELD();
     }
     vTaskDelete(NULL);
 }
@@ -100,7 +100,7 @@ void twai_transmit_task(void *arg)
         }
         twai_transmit(&tx_msg, portMAX_DELAY);
 		ESP_LOGD(TWAI_TAG, "Sent TWAI Message with ID %08X", tx_msg.identifier);
-		vTaskDelay(0);
+		taskYIELD();
     }
     vTaskDelete(NULL);
 }

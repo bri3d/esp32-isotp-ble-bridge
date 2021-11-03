@@ -442,6 +442,7 @@ void send_task(void *pvParameters)
 				}
 			}
 		}
+		taskYIELD();
     }
 	vTaskDelete(NULL);
 }
@@ -465,7 +466,7 @@ void spp_cmd_task(void * arg)
 			esp_log_buffer_char(BLE_TAG,(char *)(cmd_id),strlen((char *)cmd_id));
 			free(cmd_id);
 		}
-		vTaskDelay(0);
+		taskYIELD();
     }
     vTaskDelete(NULL);
 }
