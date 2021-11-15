@@ -31,10 +31,10 @@
 
 #define BLE_TAG  							"BLE"
 
+
 #define SPP_PROFILE_NUM             		1
 #define SPP_PROFILE_APP_IDX         		0
 #define ESP_SPP_APP_ID              		0x56
-#define DEVICE_NAME_GAP          			"BLE_TO_ISOTP20"    //The Device Name Characteristics in GAP
 #define SPP_SVC_INST_ID	            		0
 #define DEFAULT_MTU_SIZE					23
 #define DEFAULT_DELAY_SEND					0
@@ -48,7 +48,7 @@ static const uint16_t spp_service_uuid = 0xABF0;
 #define ESP_GATT_UUID_SPP_COMMAND_RECEIVE   0xABF3
 #define ESP_GATT_UUID_SPP_COMMAND_NOTIFY    0xABF4
 
-static const uint8_t spp_adv_data[23] = {
+static uint8_t spp_adv_data[23] = {
     /* Flags */
     0x02,0x01,0x06,
     /* Complete List of 16-bit Service Class UUIDs */
@@ -57,6 +57,7 @@ static const uint8_t spp_adv_data[23] = {
     0x0F,0x09, 'B', 'L', 'E', '_', 'T', 'O', '_', 'I', 'S', 'O', 'T','P', '2', '0'
 };
 
+static char ble_gap_name[MAX_GAP_LENGTH+1]		= DEFAULT_GAP_NAME;
 static uint16_t ble_delay_send 					= DEFAULT_DELAY_SEND;
 static uint16_t ble_delay_multi					= DEFAULT_DELAY_MULTI;
 static bool kill_ble_tasks 						= false;
@@ -508,10 +509,10 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
     switch (event) {
     	case ESP_GATTS_REG_EVT:
 			ESP_LOGI(BLE_TAG, "%s %d", __func__, __LINE__);
-        	esp_ble_gap_set_device_name(DEVICE_NAME_GAP);
+			esp_ble_gap_set_device_name(ble_gap_name);
 
 			ESP_LOGI(BLE_TAG, "%s %d", __func__, __LINE__);
-        	esp_ble_gap_config_adv_data_raw((uint8_t *)spp_adv_data, sizeof(spp_adv_data));
+			esp_ble_gap_config_adv_data_raw((uint8_t *)spp_adv_data, spp_adv_data[7] + 8);
 
 			ESP_LOGI(BLE_TAG, "%s %d", __func__, __LINE__);
         	esp_ble_gatts_create_attr_tab(spp_gatt_db, gatts_if, SPP_IDX_NB, SPP_SVC_INST_ID);
@@ -771,4 +772,36 @@ uint16_t ble_get_delay_send()
 uint16_t ble_get_delay_multi()
 {
 	return ble_delay_multi;
+}
+
+bool ble_set_gap_name(char* name)
+{
+	if(name)
+	{
+		uint8_t len = strlen(name);
+		if(len <= MAX_GAP_LENGTH)
+		{
+			memset((char*)&spp_adv_data[9], 0, MAX_GAP_LENGTH);
+			memcpy((char*)&spp_adv_data[9], name, len);
+			spp_adv_data[7] = len+1;
+
+			strcpy(ble_gap_name, name);
+
+			ESP_LOGI(BLE_TAG, "Set GAP name [%s]", ble_gap_name);
+		}
+	}
+
+	ESP_LOGI(BLE_TAG, "Unable to set GAP name");
+	return false;
+}
+
+bool ble_get_gap_name(char* name)
+{
+	if(name)
+	{
+		strcpy(name, ble_gap_name);
+		return true;
+	}
+
+	return false;
 }

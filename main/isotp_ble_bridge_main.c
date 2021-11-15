@@ -20,8 +20,19 @@
 #include "persist.h"
 #include "constants.h"
 #include "led.h"
+#include "eeprom.h"
 
 #define BRIDGE_TAG 					"Bridge"
+
+/* ------------------------ global vars ------------------------------------ */
+ble_header_t 	split_header;
+uint16_t		split_enabled 		= false;
+uint8_t 		split_count 		= 0;
+uint16_t 		split_length 		= 0;
+uint8_t* 		split_data 			= NULL;
+uint8_t			passwordChecked 	= false;
+uint8_t			connectedBLE		= false;
+RTC_DATA_ATTR 	bool firstBoot 		= true;
 
 /* ---------------------------- ISOTP Callbacks ---------------------------- */
 
@@ -40,7 +51,7 @@ void isotp_user_debug(const char* message, ...) {
 	ESP_LOGD(BRIDGE_TAG, "ISOTP: %s", message);
 }
 
-/* --------------------------- Tasks and Functions -------------------------- */
+/* --------------------------- Functions --------------------------------- */
 
 bool setCpuFrequencyMhz(uint16_t max, uint16_t min)
 {
@@ -53,6 +64,37 @@ bool setCpuFrequencyMhz(uint16_t max, uint16_t min)
 	//set cpu speed and return result
 	return esp_pm_configure(&cpu_config);
 }
+
+bool check_password(char* data)
+{
+	if(data) {
+		char* pass = eeprom_read_str(PASSWORD_KEY);
+		if(pass) {
+			if(!strcmp(data, pass))
+				passwordChecked = true;
+
+			free(pass);
+		} else {
+			eeprom_write_str(PASSWORD_KEY, PASSWORD_DEFAULT);
+			eeprom_commit();
+
+			if(!strcmp(data, PASSWORD_DEFAULT))
+				passwordChecked = true;
+		}
+	}
+
+	return passwordChecked;
+}
+
+void write_password(char* data)
+{
+	eeprom_write_str(PASSWORD_KEY, data);
+	eeprom_commit();
+	ESP_LOGI(BRIDGE_TAG, "Set password [%s]", data);
+}
+
+
+/* --------------------------- Tasks -------------------------------------- */
 
 static void isotp_processing_task(void *arg)
 {
@@ -137,13 +179,27 @@ static void isotp_send_queue_task(void *arg)
     vTaskDelete(NULL);
 }
 
-/* ----------- BLE callbacks ---------------- */
+static void sleep_task(void *arg)
+{
+	while(1)
+	{
+		//Did we receive a CAN message?
+		if(!connectedBLE && xSemaphoreTake(can_sem, 0) == pdTRUE)
+		{
+			xSemaphoreGive(sleep_sem);
+		}
+		xSemaphoreGive(can_sem);
+		if(firstBoot) {
+			firstBoot = false;
+			vTaskDelay(pdMS_TO_TICKS(TIMEOUT_FIRSTBOOT));
+		} else {
+			vTaskDelay(pdMS_TO_TICKS(TIMEOUT_CAN));
+		}
+	}
+    vTaskDelete(NULL);
+}
 
-ble_header_t 	split_header;
-uint16_t		split_enabled = false;
-uint8_t 		split_count = 0;
-uint16_t 		split_length = 0;
-uint8_t* 		split_data = NULL;
+/* ----------- BLE callbacks ---------------- */
 
 void split_clear()
 {
@@ -159,200 +215,255 @@ void split_clear()
 
 bool parse_packet(ble_header_t* header, uint8_t* data)
 {
-	//Is client trying to set a setting?
-	if(header->cmdFlags & BLE_COMMAND_FLAG_SETTINGS)
-	{
-		//Are we setting or getting?
-		if(header->cmdFlags & BLE_COMMAND_FLAG_SETTINGS_GET)
-		{   //Make sure payload is empty
-			if(header->cmdSize == 0)
-			{
-				//send requested information
-				switch(header->cmdFlags ^ (BLE_COMMAND_FLAG_SETTINGS | BLE_COMMAND_FLAG_SETTINGS_GET))
+	if(passwordChecked) {
+		//Is client trying to set a setting?
+		if(header->cmdFlags & BLE_COMMAND_FLAG_SETTINGS)
+		{
+			//Are we setting or getting?
+			if(header->cmdFlags & BLE_COMMAND_FLAG_SETTINGS_GET)
+			{   //Make sure payload is empty
+				if(header->cmdSize == 0)
+				{
+					//send requested information
+					switch(header->cmdFlags ^ (BLE_COMMAND_FLAG_SETTINGS | BLE_COMMAND_FLAG_SETTINGS_GET))
+					{
+						case BRG_SETTING_ISOTP_STMIN:
+							for(uint16_t i = 0; i < NUM_ISOTP_LINK_CONTAINERS; i++)
+							{
+								IsoTpLinkContainer *isotp_link_container = &isotp_link_containers[i];
+								if(header->rxID == isotp_link_container->link.receive_arbitration_id &&
+									header->txID == isotp_link_container->link.send_arbitration_id)
+								{
+									uint16_t stmin = isotp_link_container->link.stmin_override;
+									ESP_LOGI(BRIDGE_TAG, "Sending stmin [%04X] from container [%02X]", stmin, i);
+									ble_send(isotp_link_container->link.receive_arbitration_id, isotp_link_container->link.send_arbitration_id, BLE_COMMAND_FLAG_SETTINGS | BRG_SETTING_ISOTP_STMIN, &stmin, sizeof(uint16_t));
+								}
+							}
+							break;
+						case BRG_SETTING_LED_COLOR:
+							{
+								uint32_t color = led_getcolor();
+								ESP_LOGI(BRIDGE_TAG, "Sending color [%06X]", color);
+								ble_send(0, 0, BLE_COMMAND_FLAG_SETTINGS | BRG_SETTING_LED_COLOR, &color, sizeof(uint32_t));
+							}
+							break;
+						case BRG_SETTING_PERSIST_DELAY:
+							{
+								uint16_t delay = persist_get_delay();
+								ESP_LOGI(BRIDGE_TAG, "Sending persist delay [%04X]", delay);
+								ble_send(0, 0, BLE_COMMAND_FLAG_SETTINGS | BRG_SETTING_PERSIST_DELAY, &delay, sizeof(uint16_t));
+							}
+							break;
+						case BRG_SETTING_PERSIST_Q_DELAY:
+							{
+								uint16_t delay = persist_get_q_delay();
+								ESP_LOGI(BRIDGE_TAG, "Sending persist queue delay [%04X]", delay);
+								ble_send(0, 0, BLE_COMMAND_FLAG_SETTINGS | BRG_SETTING_PERSIST_Q_DELAY, &delay, sizeof(uint16_t));
+							}
+							break;
+						case BRG_SETTING_BLE_SEND_DELAY:
+							{
+								uint16_t delay = ble_get_delay_send();
+								ESP_LOGI(BRIDGE_TAG, "Sending BLE send delay [%04X]", delay);
+								ble_send(0, 0, BLE_COMMAND_FLAG_SETTINGS | BRG_SETTING_BLE_SEND_DELAY, &delay, sizeof(uint16_t));
+							}
+							break;
+						case BRG_SETTING_BLE_MULTI_DELAY:
+							{
+								uint16_t delay = ble_get_delay_multi();
+								ESP_LOGI(BRIDGE_TAG, "Sending BLE send delay [%04X]", delay);
+								ble_send(0, 0, BLE_COMMAND_FLAG_SETTINGS | BRG_SETTING_BLE_MULTI_DELAY, &delay, sizeof(uint16_t));
+							}
+							break;
+						case BRG_SETTING_GAP:
+							{
+								char str[MAX_GAP_LENGTH+1];
+								ble_get_gap_name(str);
+								uint8_t len = strlen(str);
+								ble_send(0, 0, BLE_COMMAND_FLAG_SETTINGS | BRG_SETTING_GAP, &str, len);
+								ESP_LOGI(BRIDGE_TAG, "Set GAP [%s]", str);
+							}
+							break;
+					}
+					return true;
+				}
+			} else { //Setting
+				switch(header->cmdFlags ^ BLE_COMMAND_FLAG_SETTINGS)
 				{
 					case BRG_SETTING_ISOTP_STMIN:
-						for(uint16_t i = 0; i < NUM_ISOTP_LINK_CONTAINERS; i++)
-						{
-							IsoTpLinkContainer *isotp_link_container = &isotp_link_containers[i];
-							if(header->rxID == isotp_link_container->link.receive_arbitration_id &&
-								header->txID == isotp_link_container->link.send_arbitration_id)
+						//check size
+						if(header->cmdSize == sizeof(uint16_t))
+						{   //match rx/tx
+							for(uint16_t i = 0; i < NUM_ISOTP_LINK_CONTAINERS; i++)
 							{
-								uint16_t* stmin = malloc(sizeof(uint16_t));
-								*stmin = isotp_link_container->link.stmin_override;
-								ESP_LOGI(BRIDGE_TAG, "Sending stmin [%04X] from container [%02X]", *stmin, i);
-								ble_send(isotp_link_container->link.receive_arbitration_id, isotp_link_container->link.send_arbitration_id, BLE_COMMAND_FLAG_SETTINGS | BRG_SETTING_ISOTP_STMIN, stmin, sizeof(uint16_t));
+								IsoTpLinkContainer *isotp_link_container = &isotp_link_containers[i];
+								if(header->rxID == isotp_link_container->link.receive_arbitration_id &&
+									header->txID == isotp_link_container->link.send_arbitration_id)
+								{
+									uint16_t* stmin = (uint16_t*)data;
+									isotp_link_container->link.stmin_override = *stmin;
+									ESP_LOGI(BRIDGE_TAG, "Set stmin [%04X] on container [%02X]", *stmin, i);
+									return true;
+								}
 							}
 						}
 						break;
 					case BRG_SETTING_LED_COLOR:
+						//check size
+						if(header->cmdSize == sizeof(uint32_t))
 						{
-							uint32_t* color = malloc(sizeof(uint32_t));
-							*color = led_getcolor();
-							ESP_LOGI(BRIDGE_TAG, "Sending color [%06X]", *color);
-							ble_send(0, 0, BLE_COMMAND_FLAG_SETTINGS | BRG_SETTING_LED_COLOR, color, sizeof(uint32_t));
+							uint32_t* color = (uint32_t*)data;
+							led_setcolor(*color);
+							ESP_LOGI(BRIDGE_TAG, "Set led color [%08X]", *color);
+							return true;
 						}
 						break;
 					case BRG_SETTING_PERSIST_DELAY:
-						{
-							uint16_t* delay = malloc(sizeof(uint16_t));
-							*delay = persist_get_delay();
-							ESP_LOGI(BRIDGE_TAG, "Sending persist delay [%04X]", *delay);
-							ble_send(0, 0, BLE_COMMAND_FLAG_SETTINGS | BRG_SETTING_PERSIST_DELAY, delay, sizeof(uint16_t));
+						//check size
+						if(header->cmdSize == sizeof(uint16_t))
+						{   //confirm correct command size
+							uint16_t* delay = (uint16_t*)data;
+							persist_set_delay(*delay);
+							ESP_LOGI(BRIDGE_TAG, "Set persist delay [%08X]", *delay);
+							return true;
 						}
 						break;
 					case BRG_SETTING_PERSIST_Q_DELAY:
-						{
-							uint16_t* delay = malloc(sizeof(uint16_t));
-							*delay = persist_get_q_delay();
-							ESP_LOGI(BRIDGE_TAG, "Sending persist queue delay [%04X]", *delay);
-							ble_send(0, 0, BLE_COMMAND_FLAG_SETTINGS | BRG_SETTING_PERSIST_Q_DELAY, delay, sizeof(uint16_t));
+						//check size
+						if(header->cmdSize == sizeof(uint16_t))
+						{   //confirm correct command size
+							uint16_t* delay = (uint16_t*)data;
+							persist_set_q_delay(*delay);
+							ESP_LOGI(BRIDGE_TAG, "Set persist queue delay [%08X]", *delay);
+							return true;
 						}
 						break;
 					case BRG_SETTING_BLE_SEND_DELAY:
-						{
-							uint16_t* delay = malloc(sizeof(uint16_t));
-							*delay = ble_get_delay_send();
-							ESP_LOGI(BRIDGE_TAG, "Sending BLE send delay [%04X]", *delay);
-							ble_send(0, 0, BLE_COMMAND_FLAG_SETTINGS | BRG_SETTING_BLE_SEND_DELAY, delay, sizeof(uint16_t));
+						//check size
+						if(header->cmdSize == sizeof(uint16_t))
+						{   //confirm correct command size
+							uint16_t* delay = (uint16_t*)data;
+							ble_set_delay_send(*delay);
+							ESP_LOGI(BRIDGE_TAG, "Set BLE send delay [%08X]", *delay);
+							return true;
 						}
 						break;
 					case BRG_SETTING_BLE_MULTI_DELAY:
-						{
-							uint16_t* delay = malloc(sizeof(uint16_t));
-							*delay = ble_get_delay_multi();
-							ESP_LOGI(BRIDGE_TAG, "Sending BLE send delay [%04X]", *delay);
-							ble_send(0, 0, BLE_COMMAND_FLAG_SETTINGS | BRG_SETTING_BLE_MULTI_DELAY, delay, sizeof(uint16_t));
+						//check size
+						if(header->cmdSize == sizeof(uint16_t))
+						{   //confirm correct command size
+							uint16_t* delay = (uint16_t*)data;
+							ble_set_delay_multi(*delay);
+							ESP_LOGI(BRIDGE_TAG, "Set BLE wait for queue item [%08X]", *delay);
+							return true;
 						}
 						break;
-				}
-				return true;
-			}
-		} else { //Setting
-			switch(header->cmdFlags ^ BLE_COMMAND_FLAG_SETTINGS)
-			{
-				case BRG_SETTING_ISOTP_STMIN:
-					//check size
-					if(header->cmdSize == sizeof(uint16_t))
-					{   //match rx/tx
-						for(uint16_t i = 0; i < NUM_ISOTP_LINK_CONTAINERS; i++)
-						{
-							IsoTpLinkContainer *isotp_link_container = &isotp_link_containers[i];
-							if(header->rxID == isotp_link_container->link.receive_arbitration_id &&
-								header->txID == isotp_link_container->link.send_arbitration_id)
-							{
-								uint16_t* stmin = (uint16_t*)data;
-								isotp_link_container->link.stmin_override = *stmin;
-								ESP_LOGI(BRIDGE_TAG, "Set stmin [%04X] on container [%02X]", *stmin, i);
+					case BRG_SETTING_PASSWORD:
+						//check size
+						if(header->cmdSize <= MAX_PASSWORD_LENGTH)
+						{   //confirm correct command size
+							char* str = malloc(header->cmdSize+1);
+							if(str) {
+								str[header->cmdSize] = 0;
+								memcpy(str, data, header->cmdSize);
+								write_password((char*)str);
+								free(str);
 								return true;
 							}
 						}
-					}
-					break;
+						break;
+					case BRG_SETTING_GAP:
+						if(header->cmdSize <= MAX_GAP_LENGTH)
+						{   //confirm correct command size
+							char str[MAX_GAP_LENGTH+1];
+                            memcpy(str, (char*)data, header->cmdSize);
+							str[header->cmdSize] = 0;
+							ble_set_gap_name(str);
+							eeprom_write_str(BLE_GAP_KEY, str);
+							eeprom_commit();
+							return true;
+						}
+						break;
+				}
+			}
+		} else if(persist_enabled()) {
+			//We are in persistent mode
+			//Should we clear the persist messages in memory?
+			if(header->cmdFlags & BLE_COMMAND_FLAG_PER_CLEAR)
+			{
+				persist_clear();
+			}
 
-				case BRG_SETTING_LED_COLOR:
-					//check size
-					if(header->cmdSize == sizeof(uint32_t))
-					{
-						uint32_t* color = (uint32_t*)data;
-						led_setcolor(*color);
-						ESP_LOGI(BRIDGE_TAG, "Set led color [%08X]", *color);
-						return true;
-					}
-					break;
-				case BRG_SETTING_PERSIST_DELAY:
-					//check size
-					if(header->cmdSize == sizeof(uint16_t))
-					{   //confirm correct command size
-						uint16_t* delay = (uint16_t*)data;
-						persist_set_delay(*delay);
-						ESP_LOGI(BRIDGE_TAG, "Set persist delay [%08X]", *delay);
-						return true;
-					}
-					break;
-				case BRG_SETTING_PERSIST_Q_DELAY:
-					//check size
-					if(header->cmdSize == sizeof(uint16_t))
-					{   //confirm correct command size
-						uint16_t* delay = (uint16_t*)data;
-						persist_set_q_delay(*delay);
-						ESP_LOGI(BRIDGE_TAG, "Set persist queue delay [%08X]", *delay);
-						return true;
-					}
-					break;
-				case BRG_SETTING_BLE_SEND_DELAY:
-					//check size
-					if(header->cmdSize == sizeof(uint16_t))
-					{   //confirm correct command size
-						uint16_t* delay = (uint16_t*)data;
-						ble_set_delay_send(*delay);
-						ESP_LOGI(BRIDGE_TAG, "Set BLE send delay [%08X]", *delay);
-						return true;
-					}
-					break;
-				case BRG_SETTING_BLE_MULTI_DELAY:
-					//check size
-					if(header->cmdSize == sizeof(uint16_t))
-					{   //confirm correct command size
-						uint16_t* delay = (uint16_t*)data;
-						ble_set_delay_multi(*delay);
-						ESP_LOGI(BRIDGE_TAG, "Set BLE wait for queue item [%08X]", *delay);
-						return true;
-					}
-					break;
+			//Should we disable persist mode?
+			if((header->cmdFlags & BLE_COMMAND_FLAG_PER_ENABLE) == 0)
+			{
+				persist_set(false);
+			} else {
+				//If we are still in persist mode only accept setting changes
+				return false;
+			}
+		} else {
+			//Not in persistent mode
+			if(header->cmdFlags & BLE_COMMAND_FLAG_PER_CLEAR)
+			{
+				persist_clear();
+			}
+
+			if(header->cmdFlags & BLE_COMMAND_FLAG_PER_ADD)
+			{
+				persist_add(data, header->cmdSize);
+			}
+
+			if(header->cmdFlags & BLE_COMMAND_FLAG_PER_ENABLE)
+			{
+				persist_set(true);
+				return false;
 			}
 		}
-	} else if(persist_enabled())
-	{   //Are we in persistent mode?
-		//Should we clear the persist messages in memory?
-		if(header->cmdFlags & BLE_COMMAND_FLAG_PER_CLEAR)
-		{
-			persist_clear();
-		}
 
-		//Should we disable persist mode?
-		if((header->cmdFlags & BLE_COMMAND_FLAG_PER_ENABLE) == 0)
+		if(header->cmdSize)
 		{
-			persist_set(false);
+			if(!persist_enabled())
+			{
+				ESP_LOGI(BRIDGE_TAG, "Received message [%04X]", header->cmdSize);
+
+				send_message_t msg;
+				msg.msg_length = header->cmdSize;
+				msg.rxID = header->txID;
+				msg.txID = header->rxID;
+				msg.buffer = malloc(header->cmdSize);
+				memcpy(msg.buffer, data, header->cmdSize);
+
+				xQueueSend(isotp_send_message_queue, &msg, pdMS_TO_TICKS(TIMEOUT_NORMAL));
+			}
+
+			return true;
+		}
+	} else {
+		//password has not be accepted yet, check for password
+		if(header->cmdFlags & BRG_SETTING_PASSWORD & BLE_COMMAND_FLAG_SETTINGS & BLE_COMMAND_FLAG_SETTINGS_GET) {
+			//check size
+			if(header->cmdSize <= MAX_PASSWORD_LENGTH)
+			{
+				char* str = malloc(header->cmdSize+1);
+				if(str) {
+					str[header->cmdSize] = 0;
+					memcpy(str, data, header->cmdSize);
+
+					char c = 0;
+					if(check_password((char*)data)) {
+						ESP_LOGI(BRIDGE_TAG, "Password accepted [%s]", data);
+						c = 0xFF;
+					}
+
+					ble_send(0xFF, 0xFF, 0xFF, &c, 1);
+					free(str);
+				}
+				return false;
+			}
 		} else {
-			//If we are still in persist mode only accept setting changes
-			return false;
+			ESP_LOGI(BRIDGE_TAG, "No access");
 		}
-	} else
-	{ 	//Not in persistent mode
-		if(header->cmdFlags & BLE_COMMAND_FLAG_PER_CLEAR)
-		{
-			persist_clear();
-		}
-
-		if(header->cmdFlags & BLE_COMMAND_FLAG_PER_ADD)
-		{
-			persist_add(data, header->cmdSize);
-		}
-
-		if(header->cmdFlags & BLE_COMMAND_FLAG_PER_ENABLE)
-		{
-			persist_set(true);
-			return false;
-		}
-	}
-
-	if(header->cmdSize)
-	{
-		if(!persist_enabled())
-		{
-			ESP_LOGI(BRIDGE_TAG, "Received message [%04X]", header->cmdSize);
-
-			send_message_t msg;
-			msg.msg_length = header->cmdSize;
-			msg.rxID = header->txID;
-			msg.txID = header->rxID;
-			msg.buffer = malloc(header->cmdSize);
-			memcpy(msg.buffer, data, header->cmdSize);
-
-			xQueueSend(isotp_send_message_queue, &msg, pdMS_TO_TICKS(TIMEOUT_NORMAL));
-		}
-
-		return true;
 	}
 
 	return false;
@@ -458,38 +569,57 @@ void received_from_ble(const void* src, size_t size)
 void notifications_disabled()
 {
 	//set led to low red
-	led_setcolor(LED_RED_QRT);
+	led_setcolor(LED_RED_EHT);
 
 	//set slow speed
 	setCpuFrequencyMhz(80, 10);
+
+	//disable password support
+	passwordChecked = true;
+
+	connectedBLE = false;
 }
 
 void notifications_enabled() {
 	//set to green
-	led_setcolor(LED_GREEN_HALF);
+	led_setcolor(LED_GREEN_QRT);
 
 	//set full speed
 	setCpuFrequencyMhz(240, 40);
+
+	//disable password support
+	passwordChecked = true;
+
+	connectedBLE = true;
 }
 
 /* ------------ Primary startup ---------------- */
+
 void app_main(void)
 {
 	//set slow speed
 	setCpuFrequencyMhz(80, 10);
+
+	//start eeprom and read values
+	eeprom_init();
+	char* gapName = eeprom_read_str(BLE_GAP_KEY);
+	if(gapName) {
+		ble_set_gap_name(gapName);
+		free(gapName);
+	}
 
 	//start LED handling service
 	led_start();
 
 	// Setup BLE server
     ble_server_callbacks callbacks = {
-        .data_received = received_from_ble,
+		.data_received = received_from_ble,
         .notifications_subscribed = notifications_enabled,
         .notifications_unsubscribed = notifications_disabled
     };
 	ble_server_setup(callbacks);
 
-    // Need to pull down GPIO 21 to unset the "S" (Silent Mode) pin on CAN Xceiver.
+	// Need to pull down GPIO 21 to unset the "S" (Silent Mode) pin on CAN Xceiver.
     gpio_config_t io_conf;
     io_conf.intr_type = GPIO_INTR_DISABLE;
     io_conf.mode = GPIO_MODE_OUTPUT;
@@ -497,13 +627,14 @@ void app_main(void)
     io_conf.pull_down_en = 1;
     io_conf.pull_up_en = 0;
     gpio_config(&io_conf);
-    gpio_set_level(SILENT_GPIO_NUM, 0);
+	gpio_set_level(SILENT_GPIO_NUM, 0);
 
 	//init twai can controller
 	twai_install();
 
 	//create mutexs, queues and configure links
-	done_sem = xSemaphoreCreateBinary();
+	can_sem = xSemaphoreCreateBinary();
+	sleep_sem = xSemaphoreCreateBinary();
 	isotp_mutex = xSemaphoreCreateMutex();
 	tx_task_queue = xQueueCreate(TASK_QUEUE_SIZE, sizeof(twai_message_t));
 	isotp_send_message_queue = xQueueCreate(MESSAGE_QUEUE_SIZE, sizeof(send_message_t));
@@ -526,6 +657,13 @@ void app_main(void)
 	xTaskCreatePinnedToCore(isotp_processing_task, "dtc_ISOTP_process", 4096, &isotp_link_containers[4], ISOTP_TSK_PRIO, NULL, tskNO_AFFINITY);
 	xTaskCreatePinnedToCore(isotp_send_queue_task, "ISOTP_process_send_queue", 4096, NULL, MAIN_TSK_PRIO, NULL, tskNO_AFFINITY);
 	xTaskCreatePinnedToCore(persist_task, "PERSIST_process", 4096, NULL, PERSIST_TSK_PRIO, NULL, tskNO_AFFINITY);
+	xTaskCreatePinnedToCore(sleep_task, "SLEEP_process", 4096, NULL, SLEEP_TSK_PRIO, NULL, tskNO_AFFINITY);
 
-	xSemaphoreTake(done_sem, portMAX_DELAY);
+	xSemaphoreTake(sleep_sem, portMAX_DELAY);
+
+	esp_sleep_enable_timer_wakeup(SLEEP_TIME * US_TO_S);
+	ESP_LOGI(BRIDGE_TAG, "CAN Timeout - Sleeping [%ds]", SLEEP_TIME);
+
+	//Go to sleep now
+	esp_deep_sleep_start();
 }

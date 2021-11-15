@@ -10,6 +10,9 @@
 #define LED_RED_QRT		0x004000
 #define LED_GREEN_QRT	0x400000
 #define LED_BLUE_QRT	0x000040
+#define LED_RED_EHT		0x002000
+#define LED_GREEN_EHT	0x200000
+#define LED_BLUE_EHT	0x000020
 #define LED_OFF			0x000000
 
 void 		led_start();

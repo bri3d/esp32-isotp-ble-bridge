@@ -11,6 +11,10 @@
 #define BLE_HEADER_ID					0xF1
 #define BLE_PARTIAL_ID					0xF2
 
+#define MAX_GAP_LENGTH					14
+#define DEFAULT_GAP_NAME          		"BLE_TO_ISOTP20"
+
+
 //BLE command flags
 #define BLE_COMMAND_FLAG_PER_ENABLE		1
 #define BLE_COMMAND_FLAG_PER_CLEAR		2
@@ -85,3 +89,5 @@ void ble_set_delay_send(uint16_t delay);
 void ble_set_delay_multi(uint16_t delay);
 uint16_t ble_get_delay_send();
 uint16_t ble_get_delay_multi();
+bool ble_set_gap_name(char* name);
+bool ble_get_gap_name(char* name);
