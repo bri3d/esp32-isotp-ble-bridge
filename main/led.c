@@ -15,7 +15,7 @@
 
 uint32_t led_color = 0;
 
-void led_start()
+void led_init()
 {
 	// Configure LED enable pin (switches transistor to push LED)
 	gpio_config_t io_conf_led;
@@ -31,7 +31,7 @@ void led_start()
 	led_setcolor(LED_RED_QRT);
 }
 
-void led_stop()
+void led_deinit()
 {
 	led_setcolor(LED_OFF);
 }

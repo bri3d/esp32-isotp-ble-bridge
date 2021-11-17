@@ -661,14 +661,6 @@ void ble_server_setup(ble_server_callbacks callbacks)
     esp_err_t ret;
     esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
 
-    // Initialize NVS
-    ret = nvs_flash_init();
-    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        ESP_ERROR_CHECK(nvs_flash_erase());
-        ret = nvs_flash_init();
-    }
-    ESP_ERROR_CHECK( ret );
-
     ESP_ERROR_CHECK(esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT));
 
     ret = esp_bt_controller_init(&bt_cfg);
@@ -774,7 +766,7 @@ uint16_t ble_get_delay_multi()
 	return ble_delay_multi;
 }
 
-bool ble_set_gap_name(char* name)
+bool ble_set_gap_name(char* name, bool set)
 {
 	if(name)
 	{
@@ -786,7 +778,8 @@ bool ble_set_gap_name(char* name)
 			spp_adv_data[7] = len+1;
 
 			strcpy(ble_gap_name, name);
-
+			if(set)
+				esp_ble_gap_set_device_name(ble_gap_name);
 			ESP_LOGI(BLE_TAG, "Set GAP name [%s]", ble_gap_name);
 		}
 	}
@@ -804,4 +797,14 @@ bool ble_get_gap_name(char* name)
 	}
 
 	return false;
+}
+
+void ble_stop_advertising()
+{
+	esp_ble_gap_stop_advertising();
+}
+
+void ble_start_advertising()
+{
+	esp_ble_gap_start_advertising(&spp_adv_params);
 }

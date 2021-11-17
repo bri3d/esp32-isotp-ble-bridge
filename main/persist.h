@@ -1,8 +1,9 @@
 #ifndef PERSIST_H
 #define PERSIST_H
 
-void persist_start();
-void persist_stop();
+void 		persist_init();
+void 		persist_deinit();
+void		persist_start_task();
 
 int16_t 	persist_send();
 uint16_t 	persist_enabled();

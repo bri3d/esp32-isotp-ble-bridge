@@ -35,6 +35,7 @@
 #define SPP_CMD_MAX_LEN            		(20)
 #define SPP_STATUS_MAX_LEN         		(20)
 #define SPP_DATA_BUFF_MAX_LEN      		(2*1024)
+
 ///Attributes State Machine
 enum{
     SPP_IDX_SVC,
@@ -89,5 +90,7 @@ void ble_set_delay_send(uint16_t delay);
 void ble_set_delay_multi(uint16_t delay);
 uint16_t ble_get_delay_send();
 uint16_t ble_get_delay_multi();
-bool ble_set_gap_name(char* name);
+bool ble_set_gap_name(char* name, bool set);
 bool ble_get_gap_name(char* name);
+void ble_stop_advertising();
+void ble_start_advertising();

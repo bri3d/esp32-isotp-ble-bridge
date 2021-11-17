@@ -4,12 +4,13 @@
 #include "freertos/task.h"
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
+#include "driver/twai.h"
+#include "sdkconfig.h"
 #include "esp_pm.h"
 #include "esp_sleep.h"
 #include "esp_err.h"
 #include "esp_log.h"
 #include "esp_timer.h"
-#include "driver/twai.h"
 #include "soc/dport_reg.h"
 #include "isotp.h"
 #include "ble_server.h"
@@ -21,6 +22,8 @@
 #include "constants.h"
 #include "led.h"
 #include "eeprom.h"
+#include "uart.h"
+#include "sleep.h"
 
 #define BRIDGE_TAG 					"Bridge"
 
@@ -31,15 +34,13 @@ uint8_t 		split_count 		= 0;
 uint16_t 		split_length 		= 0;
 uint8_t* 		split_data 			= NULL;
 uint8_t			passwordChecked 	= false;
-uint8_t			connectedBLE		= false;
-RTC_DATA_ATTR 	bool firstBoot 		= true;
 
 /* ---------------------------- ISOTP Callbacks ---------------------------- */
 
 int isotp_user_send_can(const uint32_t arbitration_id, const uint8_t* data, const uint16_t size) {
     twai_message_t frame = {.identifier = arbitration_id, .data_length_code = size};
     memcpy(frame.data, data, sizeof(frame.data));
-	xQueueSend(tx_task_queue, &frame, portMAX_DELAY);
+	xQueueSend(can_send_queue, &frame, portMAX_DELAY);
     return ISOTP_RET_OK;                           
 }
 
@@ -93,8 +94,16 @@ void write_password(char* data)
 	ESP_LOGI(BRIDGE_TAG, "Set password [%s]", data);
 }
 
+void send_packet(uint32_t txID, uint32_t rxID, uint8_t flags, const void* src, size_t size)
+{
+	if(ble_connected()) {
+		ble_send(txID, rxID, flags, src, size);
+	} else {
+		uart_send(txID, rxID, flags, src, size);
+	}
+}
 
-/* --------------------------- Tasks -------------------------------------- */
+/* --------------------------- ISOTP Tasks -------------------------------------- */
 
 static void isotp_processing_task(void *arg)
 {
@@ -132,10 +141,10 @@ static void isotp_processing_task(void *arg)
 				uint32_t time = (esp_timer_get_time() / 1000UL) & 0xFFFFFFFF;
 				uint16_t rxID = (time >> 16) & 0xFFFF;
 				uint16_t txID = time & 0xFFFF;
-				ble_send(txID, rxID, 0, payload_buf, out_size);
+				send_packet(txID, rxID, 0, payload_buf, out_size);
 				xSemaphoreGive(persist_message_send);
 			} else {
-				ble_send(link_ptr->receive_arbitration_id, link_ptr->send_arbitration_id, 0, payload_buf, out_size);
+				send_packet(link_ptr->receive_arbitration_id, link_ptr->send_arbitration_id, 0, payload_buf, out_size);
 			}
         }
 		taskYIELD(); // Allow higher priority tasks to run, for example Rx/Tx
@@ -179,27 +188,32 @@ static void isotp_send_queue_task(void *arg)
     vTaskDelete(NULL);
 }
 
-static void sleep_task(void *arg)
+/* --------------------------- ISOTP Functions -------------------------------------- */
+
+void isotp_start_task()
 {
-	while(1)
-	{
-		//Did we receive a CAN message?
-		if(!connectedBLE && xSemaphoreTake(can_sem, 0) == pdTRUE)
-		{
-			xSemaphoreGive(sleep_sem);
-		}
-		xSemaphoreGive(can_sem);
-		if(firstBoot) {
-			firstBoot = false;
-			vTaskDelay(pdMS_TO_TICKS(TIMEOUT_FIRSTBOOT));
-		} else {
-			vTaskDelay(pdMS_TO_TICKS(TIMEOUT_CAN));
-		}
-	}
-    vTaskDelete(NULL);
+	// Tasks :
+	// "ISOTP_process" pumps the ISOTP library's "poll" method, which will call the send queue callback if a message needs to be sent.
+    // ISOTP_process also polls the ISOTP library's non-blocking receive method, which will produce a message if one is ready.
+    // "MAIN_process_send_queue" processes queued messages from the BLE stack. These messages are dynamically allocated when they are queued and freed in this task.
+
+	xTaskCreatePinnedToCore(isotp_processing_task, "ecu_ISOTP_process", 4096, &isotp_link_containers[0], ISOTP_TSK_PRIO, NULL, tskNO_AFFINITY);
+    xTaskCreatePinnedToCore(isotp_processing_task, "tcu_ISOTP_process", 4096, &isotp_link_containers[1], ISOTP_TSK_PRIO, NULL, tskNO_AFFINITY);
+    xTaskCreatePinnedToCore(isotp_processing_task, "ptcu_ISOTP_process", 4096, &isotp_link_containers[2], ISOTP_TSK_PRIO, NULL, tskNO_AFFINITY);
+	xTaskCreatePinnedToCore(isotp_processing_task, "gateway_ISOTP_process", 4096, &isotp_link_containers[3], ISOTP_TSK_PRIO, NULL, tskNO_AFFINITY);
+	xTaskCreatePinnedToCore(isotp_processing_task, "dtc_ISOTP_process", 4096, &isotp_link_containers[4], ISOTP_TSK_PRIO, NULL, tskNO_AFFINITY);
+	xTaskCreatePinnedToCore(isotp_send_queue_task, "ISOTP_process_send_queue", 4096, NULL, MAIN_TSK_PRIO, NULL, tskNO_AFFINITY);
 }
 
-/* ----------- BLE callbacks ---------------- */
+void isotp_init()
+{
+	isotp_mutex = xSemaphoreCreateMutex();
+	isotp_send_message_queue = xQueueCreate(MESSAGE_QUEUE_SIZE, sizeof(send_message_t));
+
+	configure_isotp_links();
+}
+
+/* ----------- Receive packet functions ---------------- */
 
 void split_clear()
 {
@@ -236,7 +250,7 @@ bool parse_packet(ble_header_t* header, uint8_t* data)
 								{
 									uint16_t stmin = isotp_link_container->link.stmin_override;
 									ESP_LOGI(BRIDGE_TAG, "Sending stmin [%04X] from container [%02X]", stmin, i);
-									ble_send(isotp_link_container->link.receive_arbitration_id, isotp_link_container->link.send_arbitration_id, BLE_COMMAND_FLAG_SETTINGS | BRG_SETTING_ISOTP_STMIN, &stmin, sizeof(uint16_t));
+									send_packet(isotp_link_container->link.receive_arbitration_id, isotp_link_container->link.send_arbitration_id, BLE_COMMAND_FLAG_SETTINGS | BRG_SETTING_ISOTP_STMIN, &stmin, sizeof(uint16_t));
 								}
 							}
 							break;
@@ -244,35 +258,35 @@ bool parse_packet(ble_header_t* header, uint8_t* data)
 							{
 								uint32_t color = led_getcolor();
 								ESP_LOGI(BRIDGE_TAG, "Sending color [%06X]", color);
-								ble_send(0, 0, BLE_COMMAND_FLAG_SETTINGS | BRG_SETTING_LED_COLOR, &color, sizeof(uint32_t));
+								send_packet(0, 0, BLE_COMMAND_FLAG_SETTINGS | BRG_SETTING_LED_COLOR, &color, sizeof(uint32_t));
 							}
 							break;
 						case BRG_SETTING_PERSIST_DELAY:
 							{
 								uint16_t delay = persist_get_delay();
 								ESP_LOGI(BRIDGE_TAG, "Sending persist delay [%04X]", delay);
-								ble_send(0, 0, BLE_COMMAND_FLAG_SETTINGS | BRG_SETTING_PERSIST_DELAY, &delay, sizeof(uint16_t));
+								send_packet(0, 0, BLE_COMMAND_FLAG_SETTINGS | BRG_SETTING_PERSIST_DELAY, &delay, sizeof(uint16_t));
 							}
 							break;
 						case BRG_SETTING_PERSIST_Q_DELAY:
 							{
 								uint16_t delay = persist_get_q_delay();
 								ESP_LOGI(BRIDGE_TAG, "Sending persist queue delay [%04X]", delay);
-								ble_send(0, 0, BLE_COMMAND_FLAG_SETTINGS | BRG_SETTING_PERSIST_Q_DELAY, &delay, sizeof(uint16_t));
+								send_packet(0, 0, BLE_COMMAND_FLAG_SETTINGS | BRG_SETTING_PERSIST_Q_DELAY, &delay, sizeof(uint16_t));
 							}
 							break;
 						case BRG_SETTING_BLE_SEND_DELAY:
 							{
 								uint16_t delay = ble_get_delay_send();
 								ESP_LOGI(BRIDGE_TAG, "Sending BLE send delay [%04X]", delay);
-								ble_send(0, 0, BLE_COMMAND_FLAG_SETTINGS | BRG_SETTING_BLE_SEND_DELAY, &delay, sizeof(uint16_t));
+								send_packet(0, 0, BLE_COMMAND_FLAG_SETTINGS | BRG_SETTING_BLE_SEND_DELAY, &delay, sizeof(uint16_t));
 							}
 							break;
 						case BRG_SETTING_BLE_MULTI_DELAY:
 							{
 								uint16_t delay = ble_get_delay_multi();
 								ESP_LOGI(BRIDGE_TAG, "Sending BLE send delay [%04X]", delay);
-								ble_send(0, 0, BLE_COMMAND_FLAG_SETTINGS | BRG_SETTING_BLE_MULTI_DELAY, &delay, sizeof(uint16_t));
+								send_packet(0, 0, BLE_COMMAND_FLAG_SETTINGS | BRG_SETTING_BLE_MULTI_DELAY, &delay, sizeof(uint16_t));
 							}
 							break;
 						case BRG_SETTING_GAP:
@@ -280,7 +294,7 @@ bool parse_packet(ble_header_t* header, uint8_t* data)
 								char str[MAX_GAP_LENGTH+1];
 								ble_get_gap_name(str);
 								uint8_t len = strlen(str);
-								ble_send(0, 0, BLE_COMMAND_FLAG_SETTINGS | BRG_SETTING_GAP, &str, len);
+								send_packet(0, 0, BLE_COMMAND_FLAG_SETTINGS | BRG_SETTING_GAP, &str, len);
 								ESP_LOGI(BRIDGE_TAG, "Set GAP [%s]", str);
 							}
 							break;
@@ -378,9 +392,10 @@ bool parse_packet(ble_header_t* header, uint8_t* data)
 							char str[MAX_GAP_LENGTH+1];
                             memcpy(str, (char*)data, header->cmdSize);
 							str[header->cmdSize] = 0;
-							ble_set_gap_name(str);
+							ble_set_gap_name(str, true);
 							eeprom_write_str(BLE_GAP_KEY, str);
 							eeprom_commit();
+							xSemaphoreGive(sleep_sem);
 							return true;
 						}
 						break;
@@ -456,7 +471,7 @@ bool parse_packet(ble_header_t* header, uint8_t* data)
 						c = 0xFF;
 					}
 
-					ble_send(0xFF, 0xFF, 0xFF, &c, 1);
+					send_packet(0xFF, 0xFF, 0xFF, &c, 1);
 					free(str);
 				}
 				return false;
@@ -469,7 +484,7 @@ bool parse_packet(ble_header_t* header, uint8_t* data)
 	return false;
 }
 
-void received_from_ble(const void* src, size_t size)
+void packet_received(const void* src, size_t size)
 {
 	//store current data pointer
 	uint8_t* data = (uint8_t*)src;
@@ -566,6 +581,24 @@ void received_from_ble(const void* src, size_t size)
 	}
 }
 
+void received_from_ble(const void* src, size_t size)
+{
+	packet_received(src, size);
+}
+
+void uart_data_received(const void* src, size_t size)
+{
+	if(!ble_connected()) {
+		sleep_reset_uart();
+		packet_received(src, size);
+#if UART_ECHO
+		send_packet(0xFF, 0xFF, 0, src+sizeof(ble_header_t), size-sizeof(ble_header_t));
+#endif
+	}
+}
+
+/* ----------- BLE callbacks ---------------- */
+
 void notifications_disabled()
 {
 	//set led to low red
@@ -576,8 +609,6 @@ void notifications_disabled()
 
 	//disable password support
 	passwordChecked = true;
-
-	connectedBLE = false;
 }
 
 void notifications_enabled() {
@@ -589,8 +620,6 @@ void notifications_enabled() {
 
 	//disable password support
 	passwordChecked = true;
-
-	connectedBLE = true;
 }
 
 /* ------------ Primary startup ---------------- */
@@ -604,12 +633,9 @@ void app_main(void)
 	eeprom_init();
 	char* gapName = eeprom_read_str(BLE_GAP_KEY);
 	if(gapName) {
-		ble_set_gap_name(gapName);
+		ble_set_gap_name(gapName, false);
 		free(gapName);
 	}
-
-	//start LED handling service
-	led_start();
 
 	// Setup BLE server
     ble_server_callbacks callbacks = {
@@ -619,48 +645,25 @@ void app_main(void)
     };
 	ble_server_setup(callbacks);
 
-	// Need to pull down GPIO 21 to unset the "S" (Silent Mode) pin on CAN Xceiver.
-    gpio_config_t io_conf;
-    io_conf.intr_type = GPIO_INTR_DISABLE;
-    io_conf.mode = GPIO_MODE_OUTPUT;
-    io_conf.pin_bit_mask = GPIO_OUTPUT_PIN_SEL(SILENT_GPIO_NUM);
-    io_conf.pull_down_en = 1;
-    io_conf.pull_up_en = 0;
-    gpio_config(&io_conf);
-	gpio_set_level(SILENT_GPIO_NUM, 0);
+	//Init
+	sleep_init();
+	led_init();
+	uart_init();
+	twai_init();
+	isotp_init();
+	persist_init();
 
-	//init twai can controller
-	twai_install();
+	//start tasks
+	twai_start_task();
+	isotp_start_task();
+	persist_start_task();
+	sleep_start_task();
+	uart_start_task();
 
-	//create mutexs, queues and configure links
-	can_sem = xSemaphoreCreateBinary();
-	sleep_sem = xSemaphoreCreateBinary();
-	isotp_mutex = xSemaphoreCreateMutex();
-	tx_task_queue = xQueueCreate(TASK_QUEUE_SIZE, sizeof(twai_message_t));
-	isotp_send_message_queue = xQueueCreate(MESSAGE_QUEUE_SIZE, sizeof(send_message_t));
-	configure_isotp_links();
-	persist_start();
-
-    // Tasks :
-    // "TWAI_rx" polls the receive queue (blocking) and once a message exists, forwards it into the ISO-TP library.
-    // "TWAI_tx" blocks on a send queue which is populated by the callback from the ISO-TP library
-    // "ISOTP_process" pumps the ISOTP library's "poll" method, which will call the send queue callback if a message needs to be sent.
-    // ISOTP_process also polls the ISOTP library's non-blocking receive method, which will produce a message if one is ready.
-    // "MAIN_process_send_queue" processes queued messages from the BLE stack. These messages are dynamically allocated when they are queued and freed in this task. 
-
-	xTaskCreatePinnedToCore(twai_receive_task, "TWAI_rx", 4096, NULL, RX_TASK_PRIO, NULL, tskNO_AFFINITY);
-	xTaskCreatePinnedToCore(twai_transmit_task, "TWAI_tx", 4096, NULL, TX_TASK_PRIO, NULL, tskNO_AFFINITY);
-	xTaskCreatePinnedToCore(isotp_processing_task, "ecu_ISOTP_process", 4096, &isotp_link_containers[0], ISOTP_TSK_PRIO, NULL, tskNO_AFFINITY);
-    xTaskCreatePinnedToCore(isotp_processing_task, "tcu_ISOTP_process", 4096, &isotp_link_containers[1], ISOTP_TSK_PRIO, NULL, tskNO_AFFINITY);
-    xTaskCreatePinnedToCore(isotp_processing_task, "ptcu_ISOTP_process", 4096, &isotp_link_containers[2], ISOTP_TSK_PRIO, NULL, tskNO_AFFINITY);
-	xTaskCreatePinnedToCore(isotp_processing_task, "gateway_ISOTP_process", 4096, &isotp_link_containers[3], ISOTP_TSK_PRIO, NULL, tskNO_AFFINITY);
-	xTaskCreatePinnedToCore(isotp_processing_task, "dtc_ISOTP_process", 4096, &isotp_link_containers[4], ISOTP_TSK_PRIO, NULL, tskNO_AFFINITY);
-	xTaskCreatePinnedToCore(isotp_send_queue_task, "ISOTP_process_send_queue", 4096, NULL, MAIN_TSK_PRIO, NULL, tskNO_AFFINITY);
-	xTaskCreatePinnedToCore(persist_task, "PERSIST_process", 4096, NULL, PERSIST_TSK_PRIO, NULL, tskNO_AFFINITY);
-	xTaskCreatePinnedToCore(sleep_task, "SLEEP_process", 4096, NULL, SLEEP_TSK_PRIO, NULL, tskNO_AFFINITY);
-
+	//Wait for sleep command
 	xSemaphoreTake(sleep_sem, portMAX_DELAY);
 
+	//setup sleep timer
 	esp_sleep_enable_timer_wakeup(SLEEP_TIME * US_TO_S);
 	ESP_LOGI(BRIDGE_TAG, "CAN Timeout - Sleeping [%ds]", SLEEP_TIME);
 

@@ -11,7 +11,7 @@
 #include "driver/twai.h"
 #include "constants.h"
 
-#define TWAI_TAG 		"twai"
+#define TWAI_TAG 		"TWAI"
 
 static const twai_general_config_t g_config = {
 	.mode = TWAI_MODE_NORMAL,
@@ -28,24 +28,40 @@ static const twai_general_config_t g_config = {
 static const twai_timing_config_t t_config = TWAI_TIMING_CONFIG_500KBITS();
 static const twai_filter_config_t f_config = TWAI_FILTER_CONFIG_ACCEPT_ALL();
 
-// TWAI/CAN configuration
-/*static const twai_general_config_t g_config = TWAI_GENERAL_CONFIG_DEFAULT(TX_GPIO_NUM, RX_GPIO_NUM, TWAI_MODE_NORMAL);
-static const twai_timing_config_t t_config = TWAI_TIMING_CONFIG_500KBITS();
-static const twai_filter_config_t f_config = TWAI_FILTER_CONFIG_ACCEPT_ALL(); */
+void twai_receive_task(void *arg);
+void twai_transmit_task(void *arg);
 
-void twai_install()
+void twai_init()
 {
+	// Need to pull down GPIO 21 to unset the "S" (Silent Mode) pin on CAN Xceiver.
+    gpio_config_t io_conf;
+    io_conf.intr_type = GPIO_INTR_DISABLE;
+    io_conf.mode = GPIO_MODE_OUTPUT;
+    io_conf.pin_bit_mask = GPIO_OUTPUT_PIN_SEL(SILENT_GPIO_NUM);
+    io_conf.pull_down_en = 1;
+    io_conf.pull_up_en = 0;
+    gpio_config(&io_conf);
+	gpio_set_level(SILENT_GPIO_NUM, 0);
+
 	// "TWAI" is knockoff CAN. Install TWAI driver.
     ESP_ERROR_CHECK(twai_driver_install(&g_config, &t_config, &f_config));
 	ESP_LOGI(TWAI_TAG, "CAN/TWAI Driver installed");
 	ESP_ERROR_CHECK(twai_start());
 	ESP_LOGI(TWAI_TAG, "CAN/TWAI Driver started");
+
+	can_send_queue = xQueueCreate(TASK_QUEUE_SIZE, sizeof(twai_message_t));
 }
 
-void twai_uninstall()
+void twai_deinit()
 {
 	ESP_ERROR_CHECK(twai_driver_uninstall());
 	ESP_LOGI(TWAI_TAG, "Driver uninstalled");
+}
+
+void twai_start_task()
+{
+	xTaskCreatePinnedToCore(twai_receive_task, "TWAI_rx", 4096, NULL, RX_TASK_PRIO, NULL, tskNO_AFFINITY);
+	xTaskCreatePinnedToCore(twai_transmit_task, "TWAI_tx", 4096, NULL, TX_TASK_PRIO, NULL, tskNO_AFFINITY);
 }
 
 void twai_send_isotp_message(IsoTpLinkContainer* link, twai_message_t* msg)
@@ -94,7 +110,7 @@ void twai_transmit_task(void *arg)
     while (1)
     {
         twai_message_t tx_msg;
-		xQueueReceive(tx_task_queue, &tx_msg, portMAX_DELAY);
+		xQueueReceive(can_send_queue, &tx_msg, portMAX_DELAY);
         ESP_LOGD(TWAI_TAG, "Sending TWAI Message with ID %08X", tx_msg.identifier);
         for (int i = 0; i < tx_msg.data_length_code; i++) {
             ESP_LOGD(TWAI_TAG, "TX Data: %02X", tx_msg.data[i]);

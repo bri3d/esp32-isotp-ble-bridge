@@ -22,16 +22,23 @@ uint16_t msgPersistEnabled 		= false;
 uint16_t msgPersistDelay 		= PERSIST_DEFAULT_MESSAGE_DELAY;
 uint16_t msgPersistQDelay 		= PERSIST_DEFAULT_QUEUE_DELAY;
 
-void persist_start()
+void persist_task(void *arg);
+
+void persist_init()
 {
 	persist_message_mutex = xSemaphoreCreateMutex();
 	persist_message_send = xSemaphoreCreateBinary();
 }
 
-void persist_stop()
+void persist_deinit()
 {
 	vSemaphoreDelete(persist_message_send);
 	vSemaphoreDelete(persist_message_mutex);
+}
+
+void persist_start_task()
+{
+	xTaskCreatePinnedToCore(persist_task, "PERSIST_process", 4096, NULL, PERSIST_TSK_PRIO, NULL, tskNO_AFFINITY);
 }
 
 int16_t persist_send()

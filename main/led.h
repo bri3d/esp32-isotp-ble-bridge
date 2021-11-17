@@ -15,8 +15,8 @@
 #define LED_BLUE_EHT	0x000020
 #define LED_OFF			0x000000
 
-void 		led_start();
-void 		led_stop();
+void 		led_init();
+void 		led_deinit();
 void 		led_setcolor(uint32_t color);
 uint32_t 	led_getcolor();
 
