@@ -213,7 +213,6 @@ void uart_receive_task(void *arg)
 	while(1)
 	{
 		if(xQueueReceive(uart_receive_queue, (void * )&event, (portTickType)portMAX_DELAY)) {
-			bzero(uart_buffer, UART_BUFFER_SIZE);
 			ESP_LOGI(UART_TAG, "uart[%d] event:", UART_PORT_NUM);
             switch(event.type) {
                 //Event of UART receving data
