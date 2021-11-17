@@ -16,6 +16,13 @@ uint16_t uart_buffer_length	= 0;
 uint16_t uart_buffer_pos 	= 0;
 uint8_t  uart_buffer[UART_BUFFER_SIZE];
 
+bool uart_buffer_check_header();
+bool uart_buffer_add(uint8_t* tmp_buffer, uint16_t size);
+bool uart_buffer_get(uint8_t* tmp_buffer, uint16_t size);
+void uart_buffer_clear();
+void uart_buffer_parse();
+uint8_t uart_buffer_check_byte(uint8_t pos);
+
 void uart_send_task(void *arg);
 void uart_receive_task(void *arg);
 
@@ -90,8 +97,16 @@ void uart_buffer_clear()
 bool uart_buffer_check_header()
 {
 	if(uart_buffer_length) {
-		if(uart_buffer[uart_buffer_pos] == BLE_HEADER_ID) {
+		if(uart_buffer_check_byte(0) == BLE_HEADER_ID) {
 			if(uart_buffer_length >= sizeof(ble_header_t)) {
+
+				//check command length, fail if oversized
+				uint16_t packet_len = (uart_buffer_check_byte(7) << 8) + uart_buffer_check_byte(6) + sizeof(ble_header_t);
+				if(packet_len > UART_BUFFER_SIZE) {
+					uart_buffer_clear();
+					return false;
+				}
+
 				return true;
 			}
 		} else {
@@ -166,7 +181,7 @@ bool uart_buffer_get(uint8_t* tmp_buffer, uint16_t size)
 	return over_flow;
 }
 
-uint8_t uart_buffer_get_byte(uint8_t pos)
+uint8_t uart_buffer_check_byte(uint8_t pos)
 {
 	uint16_t tmp_pos = uart_buffer_pos + pos;
 	if(tmp_pos >= UART_BUFFER_SIZE) {
@@ -179,7 +194,7 @@ uint8_t uart_buffer_get_byte(uint8_t pos)
 void uart_buffer_parse()
 {
 	if(uart_buffer_check_header()) {
-		uint16_t packet_len = (uart_buffer_get_byte(7) << 8) + uart_buffer_get_byte(6) + sizeof(ble_header_t);
+		uint16_t packet_len = (uart_buffer_check_byte(7) << 8) + uart_buffer_check_byte(6) + sizeof(ble_header_t);
 		if(packet_len > UART_BUFFER_SIZE)
 			packet_len = UART_BUFFER_SIZE;
 
