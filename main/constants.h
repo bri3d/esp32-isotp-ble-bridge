@@ -35,9 +35,9 @@
 #define TIMEOUT_SHORT					50
 #define TIMEOUT_NORMAL					100
 #define TIMEOUT_LONG					1000
-#define TIMEOUT_CONGESTION				5000
-#define TIMEOUT_CAN						1000
-#define TIMEOUT_FIRSTBOOT				30000
+#define TIMEOUT_CAN						1
+#define TIMEOUT_FIRSTBOOT				30
+#define TIMEOUT_UARTCONNECTION			120
 
 #define SLEEP_TIME						10
 #define US_TO_S							1000000

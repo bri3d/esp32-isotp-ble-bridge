@@ -12,15 +12,15 @@
 
 #define UART_TAG 		"UART"
 
-uint16_t uart_buffer_length	= 0;
-uint16_t uart_buffer_pos 	= 0;
+uint16_t uart_packet_started	= 0;
+uint16_t uart_buffer_length		= 0;
+uint16_t uart_buffer_pos 		= 0;
 uint8_t  uart_buffer[UART_BUFFER_SIZE];
 
 bool uart_buffer_check_header();
 bool uart_buffer_add(uint8_t* tmp_buffer, uint16_t size);
 bool uart_buffer_get(uint8_t* tmp_buffer, uint16_t size);
-void uart_buffer_clear();
-void uart_buffer_parse();
+bool uart_buffer_parse();
 uint8_t uart_buffer_check_byte(uint8_t pos);
 
 void uart_send_task(void *arg);
@@ -90,6 +90,7 @@ void uart_send_task(void *arg)
 
 void uart_buffer_clear()
 {
+	uart_packet_started	= false;
 	uart_buffer_length	= 0;
 	uart_buffer_pos 	= 0;
 }
@@ -191,20 +192,33 @@ uint8_t uart_buffer_check_byte(uint8_t pos)
 	return uart_buffer[tmp_pos];
 }
 
-void uart_buffer_parse()
+bool uart_buffer_parse()
 {
 	if(uart_buffer_check_header()) {
+		//if we are just starting a packet set our timeout
+		if(!uart_packet_started) {
+			uart_packet_started = true;
+			xSemaphoreTake(uart_packet_sem, 0);
+		}
+
+		//get packet length
 		uint16_t packet_len = (uart_buffer_check_byte(7) << 8) + uart_buffer_check_byte(6) + sizeof(ble_header_t);
 		if(packet_len > UART_BUFFER_SIZE)
 			packet_len = UART_BUFFER_SIZE;
 
+		//if data is longer than packet length send
 		if(uart_buffer_length >= packet_len) {
 			uint8_t* packet_data = malloc(packet_len);
 			uart_buffer_get(packet_data, packet_len);
 			uart_data_received((void*)packet_data, packet_len);
 			free(packet_data);
+
+			uart_packet_started = false;
+			return true;
 		}
 	}
+
+	return false;
 }
 
 void uart_receive_task(void *arg)
@@ -225,7 +239,7 @@ void uart_receive_task(void *arg)
 					uart_read_bytes(UART_PORT_NUM, tmp_buffer, event.size, portMAX_DELAY);
 					uart_buffer_add(tmp_buffer, event.size);
 					free(tmp_buffer);
-					uart_buffer_parse();
+					while(uart_buffer_parse());
                     break;
                 //Event of HW FIFO overflow detected
                 case UART_FIFO_OVF:

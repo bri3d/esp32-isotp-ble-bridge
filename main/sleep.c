@@ -9,11 +9,12 @@
 #include "constants.h"
 #include "sleep.h"
 #include "ble_server.h"
+#include "uart.h"
 
 #define SLEEP_TAG 			"SLEEP"
 
-RTC_DATA_ATTR 	bool firstBoot 		= true;
-uint32_t uartConnected 				= 120;
+RTC_DATA_ATTR 	uint32_t firstSleep	= TIMEOUT_FIRSTBOOT;
+uint32_t 		uartConnected 		= TIMEOUT_UARTCONNECTION;
 
 void sleep_task(void *arg);
 
@@ -21,6 +22,7 @@ void sleep_init()
 {
 	can_sem = xSemaphoreCreateBinary();
 	uart_mutex = xSemaphoreCreateMutex();
+	uart_packet_sem = xSemaphoreCreateBinary();
 	sleep_sem = xSemaphoreCreateBinary();
 }
 
@@ -28,6 +30,7 @@ void sleep_deinit()
 {
 	vSemaphoreDelete(can_sem);
 	vSemaphoreDelete(uart_mutex);
+	vSemaphoreDelete(uart_packet_sem);
 	vSemaphoreDelete(sleep_sem);
 }
 
@@ -68,19 +71,25 @@ void sleep_task(void *arg)
 {
 	while(1)
 	{
+		//count down our first boot timer
+		if(firstSleep) {
+			firstSleep--;
+		}
+
 		//Did we receive a CAN or uart message?
-		if((!ble_connected() && !sleep_uart_connection()) && xSemaphoreTake(can_sem, 0) == pdTRUE)
-		{
+		if((!ble_connected() && !sleep_uart_connection()) && !firstSleep && xSemaphoreTake(can_sem, 0) == pdTRUE) {
 			xSemaphoreGive(sleep_sem);
 		}
 
-		xSemaphoreGive(can_sem);
-		if(firstBoot) {
-			firstBoot = false;
-			vTaskDelay(pdMS_TO_TICKS(TIMEOUT_FIRSTBOOT));
-		} else {
-			vTaskDelay(pdMS_TO_TICKS(TIMEOUT_CAN));
+		//check for packet timeout
+		if(sleep_uart_connected() && xSemaphoreTake(uart_packet_sem, 0) == pdTRUE) {
+        	uart_buffer_clear();
 		}
+
+		xSemaphoreGive(can_sem);
+		xSemaphoreGive(uart_packet_sem);
+
+		vTaskDelay(pdMS_TO_TICKS(TIMEOUT_CAN * 1000));
 	}
     vTaskDelete(NULL);
 }
