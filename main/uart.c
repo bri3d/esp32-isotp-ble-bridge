@@ -12,19 +12,20 @@
 
 #define UART_TAG 		"UART"
 
-uint16_t uart_packet_started	= 0;
-uint16_t uart_buffer_length		= 0;
-uint16_t uart_buffer_pos 		= 0;
-uint8_t  uart_buffer[UART_BUFFER_SIZE];
+bool 		uart_packet_started		= false;
+uint16_t 	uart_buffer_length		= 0;
+uint16_t 	uart_buffer_pos 		= 0;
+uint8_t  	uart_buffer[UART_BUFFER_SIZE];
 
-bool uart_buffer_check_header();
-bool uart_buffer_add(uint8_t* tmp_buffer, uint16_t size);
-bool uart_buffer_get(uint8_t* tmp_buffer, uint16_t size);
-bool uart_buffer_parse();
-uint8_t uart_buffer_check_byte(uint8_t pos);
+bool 		uart_buffer_check_header();
+bool 		uart_buffer_add(uint8_t* tmp_buffer, uint16_t size);
+bool 		uart_buffer_get(uint8_t* tmp_buffer, uint16_t size);
+bool 		uart_buffer_parse();
+uint8_t 	uart_buffer_check_byte(uint16_t pos);
+uint16_t 	uart_buffer_check_word(uint16_t pos);
 
-void uart_send_task(void *arg);
-void uart_receive_task(void *arg);
+void 		uart_send_task(void *arg);
+void 		uart_receive_task(void *arg);
 
 void uart_init()
 {
@@ -43,11 +44,13 @@ void uart_init()
 	ESP_ERROR_CHECK(uart_driver_install(UART_PORT_NUM, UART_BUFFER_SIZE * 2, UART_BUFFER_SIZE * 2, UART_QUEUE_SIZE, &uart_receive_queue, 0));
 	ESP_ERROR_CHECK(uart_param_config(UART_PORT_NUM, &uart_config));
 	ESP_ERROR_CHECK(uart_set_pin(UART_PORT_NUM, UART_TXD, UART_RXD, UART_RTS, UART_CTS));
+	uart_buffer_mutex = xSemaphoreCreateMutex();
 }
 
 void uart_deinit()
 {
 	ESP_ERROR_CHECK(uart_driver_delete(UART_PORT_NUM));
+	vSemaphoreDelete(uart_buffer_mutex);
 }
 
 void uart_start_task()
@@ -102,7 +105,7 @@ bool uart_buffer_check_header()
 			if(uart_buffer_length >= sizeof(ble_header_t)) {
 
 				//check command length, fail if oversized
-				uint16_t packet_len = (uart_buffer_check_byte(7) << 8) + uart_buffer_check_byte(6) + sizeof(ble_header_t);
+				uint16_t packet_len = uart_buffer_check_word(6) + sizeof(ble_header_t);
 				if(packet_len > UART_BUFFER_SIZE) {
 					uart_buffer_clear();
 					return false;
@@ -182,14 +185,24 @@ bool uart_buffer_get(uint8_t* tmp_buffer, uint16_t size)
 	return over_flow;
 }
 
-uint8_t uart_buffer_check_byte(uint8_t pos)
+uint8_t uart_buffer_check_byte(uint16_t pos)
 {
 	uint16_t tmp_pos = uart_buffer_pos + pos;
-	if(tmp_pos >= UART_BUFFER_SIZE) {
-		tmp_pos -= UART_BUFFER_SIZE;
-	}
+	if(tmp_pos >= UART_BUFFER_SIZE) tmp_pos -= UART_BUFFER_SIZE;
+	uint8_t tmp_data = uart_buffer[tmp_pos];
 
-	return uart_buffer[tmp_pos];
+	return tmp_data;
+}
+
+uint16_t uart_buffer_check_word(uint16_t pos)
+{
+	uint16_t tmp_pos = uart_buffer_pos + pos;
+	uint16_t tmp_pos1 = tmp_pos + 1;
+	if(tmp_pos >= UART_BUFFER_SIZE) tmp_pos -= UART_BUFFER_SIZE;
+	if(tmp_pos1 >= UART_BUFFER_SIZE) tmp_pos1 -= UART_BUFFER_SIZE;
+	uint16_t tmp_data = (uart_buffer[tmp_pos+1] << 8) + uart_buffer[tmp_pos];
+
+	return tmp_data;
 }
 
 bool uart_buffer_parse()
@@ -198,15 +211,15 @@ bool uart_buffer_parse()
 		//if we are just starting a packet set our timeout
 		if(!uart_packet_started) {
 			uart_packet_started = true;
-			xSemaphoreTake(uart_packet_sem, 0);
+			xSemaphoreTake(sleep_uart_packet_sem, 0);
 		}
 
 		//get packet length
-		uint16_t packet_len = (uart_buffer_check_byte(7) << 8) + uart_buffer_check_byte(6) + sizeof(ble_header_t);
+		uint16_t packet_len = uart_buffer_check_word(6) + sizeof(ble_header_t);
 		if(packet_len > UART_BUFFER_SIZE)
 			packet_len = UART_BUFFER_SIZE;
 
-		//if data is longer than packet length send
+		//if data is >= to packet length, send it
 		if(uart_buffer_length >= packet_len) {
 			uint8_t* packet_data = malloc(packet_len);
 			uart_buffer_get(packet_data, packet_len);
@@ -228,12 +241,13 @@ void uart_receive_task(void *arg)
 	{
 		if(xQueueReceive(uart_receive_queue, (void * )&event, (portTickType)portMAX_DELAY)) {
 			ESP_LOGI(UART_TAG, "uart[%d] event:", UART_PORT_NUM);
+			xSemaphoreTake(uart_buffer_mutex, pdMS_TO_TICKS(TIMEOUT_NORMAL));
             switch(event.type) {
                 //Event of UART receving data
                 /*We'd better handler data event fast, there would be much more data events than
                 other types of events. If we take too much time on data event, the queue might
                 be full.*/
-                case UART_DATA:
+				case UART_DATA:
 					ESP_LOGI(UART_TAG, "[UART DATA]: %d", event.size);
 					uint8_t* tmp_buffer = malloc(event.size);
 					uart_read_bytes(UART_PORT_NUM, tmp_buffer, event.size, portMAX_DELAY);
@@ -272,6 +286,7 @@ void uart_receive_task(void *arg)
 					ESP_LOGI(UART_TAG, "uart event type: %d", event.type);
                     break;
 			}
+			xSemaphoreGive(uart_buffer_mutex);
 		}
 		taskYIELD();
     }

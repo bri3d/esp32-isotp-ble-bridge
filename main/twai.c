@@ -83,7 +83,7 @@ void twai_receive_task(void *arg)
 	{
 		twai_message_t twai_rx_msg;
 		twai_receive(&twai_rx_msg, portMAX_DELAY); // If no message available, should block and yield.
-		xSemaphoreTake(can_sem, 0);
+		xSemaphoreTake(sleep_can_sem, 0);
 		ESP_LOGI(TWAI_TAG, "Received TWAI %08X and length %08X", twai_rx_msg.identifier, twai_rx_msg.data_length_code);
         for (int i = 0; i < twai_rx_msg.data_length_code; i++) {
 			ESP_LOGD(TWAI_TAG, "RX Data: %02X", twai_rx_msg.data[i]);
