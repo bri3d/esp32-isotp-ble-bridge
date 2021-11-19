@@ -18,7 +18,7 @@ Download the 3 bin files in this folder.
 
 Using the flash tool select the 3 bin files and set the following addresses:<br />
 bootloader.bin    @ 0x1000<br />
-partition-table   @ 0x8000<br />
-isotp_ble_bridge  @ 0x10000<br />
+partition-table.bin   @ 0x8000<br />
+isotp_ble_bridge.bin  @ 0x10000<br />
 
 Select the baud rate of 115200 and com port (usually 3) and click start.
