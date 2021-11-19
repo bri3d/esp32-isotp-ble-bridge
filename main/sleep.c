@@ -44,8 +44,9 @@ void sleep_reset_uart()
 	xSemaphoreTake(sleep_uart_mutex, pdMS_TO_TICKS(TIMEOUT_NORMAL));
 	if(!uartConnected) {
 		ble_stop_advertising();
+		sleep_on_connection();
 	}
-	uartConnected = 120;
+	uartConnected = TIMEOUT_UARTCONNECTION;
 	xSemaphoreGive(sleep_uart_mutex);
 }
 
@@ -60,6 +61,7 @@ bool sleep_uart_connection()
 	if(uartConnected) {
 		if(--uartConnected == 0) {
 			ble_start_advertising();
+			sleep_on_disconnection();
 		}
 	}
 	xSemaphoreGive(sleep_uart_mutex);

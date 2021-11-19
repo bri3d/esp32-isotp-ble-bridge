@@ -240,9 +240,9 @@ void uart_receive_task(void *arg)
 	while(1)
 	{
 		if(xQueueReceive(uart_receive_queue, (void * )&event, (portTickType)portMAX_DELAY)) {
-			ESP_LOGI(UART_TAG, "uart[%d] event:", UART_PORT_NUM);
 			xSemaphoreTake(uart_buffer_mutex, pdMS_TO_TICKS(TIMEOUT_NORMAL));
-            switch(event.type) {
+            ESP_LOGI(UART_TAG, "uart[%d] event:", UART_PORT_NUM);
+			switch(event.type) {
                 //Event of UART receving data
                 /*We'd better handler data event fast, there would be much more data events than
                 other types of events. If we take too much time on data event, the queue might

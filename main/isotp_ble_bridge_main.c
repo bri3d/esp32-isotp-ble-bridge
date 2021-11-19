@@ -597,9 +597,9 @@ void uart_data_received(const void* src, size_t size)
 	}
 }
 
-/* ----------- BLE callbacks ---------------- */
+/* ----------- BLE/UART callbacks ---------------- */
 
-void notifications_disabled()
+void bridge_connection()
 {
 	//set led to low red
 	led_setcolor(LED_RED_EHT);
@@ -611,7 +611,7 @@ void notifications_disabled()
 	passwordChecked = true;
 }
 
-void notifications_enabled() {
+void bridge_disconnection() {
 	//set to green
 	led_setcolor(LED_GREEN_QRT);
 
@@ -620,6 +620,26 @@ void notifications_enabled() {
 
 	//disable password support
 	passwordChecked = true;
+}
+
+void sleep_on_connection()
+{
+	bridge_connection();
+}
+
+void sleep_on_disconnection()
+{
+	bridge_disconnection();
+}
+
+void ble_notifications_enabled()
+{
+	bridge_connection();
+}
+
+void ble_notifications_disabled()
+{
+	bridge_disconnection();
 }
 
 /* ------------ Primary startup ---------------- */
@@ -640,8 +660,8 @@ void app_main(void)
 	// Setup BLE server
     ble_server_callbacks callbacks = {
 		.data_received = received_from_ble,
-        .notifications_subscribed = notifications_enabled,
-        .notifications_unsubscribed = notifications_disabled
+		.notifications_subscribed = ble_notifications_enabled,
+		.notifications_unsubscribed = ble_notifications_disabled
     };
 	ble_server_setup(callbacks);
 
