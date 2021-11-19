@@ -14,7 +14,7 @@
 #define SLEEP_TAG 			"SLEEP"
 
 RTC_DATA_ATTR 	uint32_t firstSleep	= TIMEOUT_FIRSTBOOT;
-uint32_t 		uartConnected 		= TIMEOUT_UARTCONNECTION;
+uint32_t 		uartConnected 		= 0;
 
 void sleep_task(void *arg);
 

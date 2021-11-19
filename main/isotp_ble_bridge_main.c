@@ -33,7 +33,7 @@ uint16_t		split_enabled 		= false;
 uint8_t 		split_count 		= 0;
 uint16_t 		split_length 		= 0;
 uint8_t* 		split_data 			= NULL;
-uint8_t			passwordChecked 	= false;
+uint8_t			passwordChecked 	= true;
 
 /* ---------------------------- ISOTP Callbacks ---------------------------- */
 
