@@ -599,24 +599,24 @@ void uart_data_received(const void* src, size_t size)
 
 /* ----------- BLE/UART callbacks ---------------- */
 
-void bridge_connection()
+void bridge_connection() {
+	//set to green
+	led_setcolor(LED_GREEN_QRT);
+
+	//set full speed
+	setCpuFrequencyMhz(240, 40);
+
+	//disable password support
+	passwordChecked = true;
+}
+
+void bridge_disconnection()
 {
 	//set led to low red
 	led_setcolor(LED_RED_EHT);
 
 	//set slow speed
 	setCpuFrequencyMhz(80, 10);
-
-	//disable password support
-	passwordChecked = true;
-}
-
-void bridge_disconnection() {
-	//set to green
-	led_setcolor(LED_GREEN_QRT);
-
-	//set full speed
-	setCpuFrequencyMhz(240, 40);
 
 	//disable password support
 	passwordChecked = true;
