@@ -36,23 +36,33 @@
 #define TIMEOUT_NORMAL					100
 #define TIMEOUT_LONG					1000
 #define TIMEOUT_CAN						1
-#define TIMEOUT_FIRSTBOOT				30
-#define TIMEOUT_UARTCONNECTION			120
 
-#define SLEEP_TIME						10
-#define US_TO_S							1000000
+#define TIMEOUT_FIRSTBOOT				30
 
-#define MAX_PASSWORD_LENGTH				64
-#define PASSWORD_KEY					"Password"
-#define PASSWORD_DEFAULT			   	"BLE2"
-#define BLE_GAP_KEY		  				"GAP"
+#define TIMEOUT_UARTCONNECTION			120
 
-#define UART_TXD 						UART_PIN_NO_CHANGE
-#define UART_RXD 						UART_PIN_NO_CHANGE
+
+#define SLEEP_TIME						10
+
+#define US_TO_S							1000000
+
+
+#define MAX_PASSWORD_LENGTH				64
+
+#define PASSWORD_KEY					"Password"
+
+#define PASSWORD_DEFAULT			   	"BLE2"
+
+#define BLE_GAP_KEY		  				"GAP"
+
+
+#define UART_TXD 						UART_PIN_NO_CHANGE
+
+#define UART_RXD 						UART_PIN_NO_CHANGE
 #define UART_RTS 						UART_PIN_NO_CHANGE
 #define UART_CTS 						UART_PIN_NO_CHANGE
 #define UART_PORT_NUM      				UART_NUM_0
-#define UART_BAUD_RATE     				115200
+#define UART_BAUD_RATE     				250000
 #define UART_BUFFER_SIZE				8192
 #define UART_ECHO						0
 

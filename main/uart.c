@@ -71,7 +71,7 @@ void uart_send(uint32_t txID, uint32_t rxID, uint8_t flags, const void* src, siz
 	header->cmdFlags = flags;
 	header->rxID = rxID;
 	header->txID = txID;
-    header->cmdSize = size;
+	header->cmdSize = size;
 	memcpy(msg.buffer+sizeof(ble_header_t), src, size);
 
 	xQueueSend(uart_send_queue, &msg, 50 / portTICK_PERIOD_MS);
