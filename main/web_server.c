@@ -66,6 +66,7 @@ esp_err_t websocket_handler(httpd_req_t *req)
     httpd_ws_frame_t ws_pkt;
     size_t max_len = 512 + 4; // largest PDU + 4 bytes for arbitration ID TODO: PDU max length should be 0x1000 (0xFFF + serviceId)
     uint8_t *buf = calloc(1, max_len);
+    assert(buf != NULL);
     memset(&ws_pkt, 0, sizeof(httpd_ws_frame_t));
     ws_pkt.type = HTTPD_WS_TYPE_BINARY;
     ws_pkt.payload = buf;
@@ -94,6 +95,7 @@ esp_err_t websocket_handler(httpd_req_t *req)
         // flip rx_id + tx_id because we want a response back from tx_id
         msg.rx_id = tx_id;
         msg.tx_id = rx_id;
+        msg.reuse_buffer = false;
         msg.buffer = calloc(1, pdu_len);
         memcpy(msg.buffer, pdu, pdu_len);
         msg.msg_length = pdu_len;
@@ -131,7 +133,9 @@ void websocket_send(uint32_t tx_id, uint32_t rx_id, const void* src, size_t size
     send_message_t msg;
     msg.tx_id = tx_id;
     msg.rx_id = rx_id;
+    msg.reuse_buffer = false;
     msg.buffer = malloc(size);
+    assert(msg.buffer != NULL);
     msg.msg_length = size;
     memcpy(msg.buffer, src, size);
     xQueueSend(websocket_send_queue, &msg, 50 / portTICK_PERIOD_MS);
@@ -148,6 +152,8 @@ void websocket_send_task(void *pvParameters)
             httpd_ws_frame_t ws_pkt;
             memset(&ws_pkt, 0, sizeof(httpd_ws_frame_t));
             ws_pkt.payload = malloc(event.msg_length + 8);
+            assert(ws_pkt.payload != NULL);
+            // TODO: is this correct endian wise? most likely not
             memcpy(ws_pkt.payload, &event.rx_id, sizeof(uint32_t));
             memcpy(ws_pkt.payload + 4, &event.tx_id, sizeof(uint32_t));
             memcpy(ws_pkt.payload + 8, event.buffer, event.msg_length);

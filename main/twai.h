@@ -16,7 +16,11 @@ static const twai_general_config_t g_config = {
     .intr_flags = ESP_INTR_FLAG_LEVEL1
 };
 static const twai_timing_config_t t_config = TWAI_TIMING_CONFIG_500KBITS();
-static const twai_filter_config_t f_config = TWAI_FILTER_CONFIG_ACCEPT_ALL();
+static const twai_filter_config_t f_config =  {
+    .acceptance_code = 0,
+    .acceptance_mask = 0xFFFFFFFF,
+    .single_filter = true
+};
 
 void twai_transmit_task(void *arg);
 void twai_receive_task(void *arg);

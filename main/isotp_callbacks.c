@@ -30,6 +30,6 @@ void isotp_user_debug(const char *message, ...)
 {
     va_list args;
     va_start(args, message);
-    esp_log_writev(ESP_LOG_DEBUG, ISOTP_CALLBACKS_TAG, message, args);
+    // esp_log_writev(ESP_LOG_DEBUG, ISOTP_CALLBACKS_TAG, message, args);
     va_end(args);
 }
