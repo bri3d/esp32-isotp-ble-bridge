@@ -40,8 +40,8 @@ void uart_init()
         .source_clk = UART_SCLK_APB,
 	};
 
-	uart_send_queue = xQueueCreate(TASK_QUEUE_SIZE, sizeof(send_message_t));
-	ESP_ERROR_CHECK(uart_driver_install(UART_PORT_NUM, UART_BUFFER_SIZE * 2, UART_BUFFER_SIZE * 2, UART_QUEUE_SIZE, &uart_receive_queue, 0));
+	uart_send_queue = xQueueCreate(UART_QUEUE_SIZE, sizeof(send_message_t));
+	ESP_ERROR_CHECK(uart_driver_install(UART_PORT_NUM, UART_INTERNAL_BUFFER_SIZE, UART_INTERNAL_BUFFER_SIZE, UART_QUEUE_SIZE, &uart_receive_queue, 0));
 	ESP_ERROR_CHECK(uart_param_config(UART_PORT_NUM, &uart_config));
 	ESP_ERROR_CHECK(uart_set_pin(UART_PORT_NUM, UART_TXD, UART_RXD, UART_RTS, UART_CTS));
 	uart_buffer_mutex = xSemaphoreCreateMutex();
@@ -55,26 +55,29 @@ void uart_deinit()
 
 void uart_start_task()
 {
-	xTaskCreatePinnedToCore(uart_receive_task, "UART_receive_process", 4096, NULL, UART_TSK_PRIO, NULL, tskNO_AFFINITY);
-	xTaskCreatePinnedToCore(uart_send_task, "UART_send_process", 4096, NULL, UART_TSK_PRIO, NULL, tskNO_AFFINITY);
+	xTaskCreate(uart_receive_task, "UART_receive_process", TASK_STACK_SIZE, NULL, UART_TSK_PRIO, NULL);
+	xTaskCreate(uart_send_task, "UART_send_process", TASK_STACK_SIZE, NULL, UART_TSK_PRIO, NULL);
 }
 
 void uart_send(uint32_t txID, uint32_t rxID, uint8_t flags, const void* src, size_t size)
 {
 	send_message_t msg;
-	msg.buffer = malloc(size+sizeof(ble_header_t));
-	msg.msg_length = size+sizeof(ble_header_t);
+	msg.msg_length = size + sizeof(ble_header_t);
+	msg.buffer = malloc(msg.msg_length);
+	if (msg.buffer) {
+		//Build header
+		ble_header_t* header = (ble_header_t*)msg.buffer;
+		header->hdID = BLE_HEADER_ID;
+		header->cmdFlags = flags;
+		header->rxID = rxID;
+		header->txID = txID;
+		header->cmdSize = size;
+		memcpy(msg.buffer + sizeof(ble_header_t), src, size);
 
-	//Build header
-	ble_header_t* header = (ble_header_t*)msg.buffer;
-	header->hdID = BLE_HEADER_ID;
-	header->cmdFlags = flags;
-	header->rxID = rxID;
-	header->txID = txID;
-	header->cmdSize = size;
-	memcpy(msg.buffer+sizeof(ble_header_t), src, size);
-
-	xQueueSend(uart_send_queue, &msg, 50 / portTICK_PERIOD_MS);
+		xQueueSend(uart_send_queue, &msg, 50 / portTICK_PERIOD_MS);
+	} else {
+		ESP_LOGD(UART_TAG, "uart_send: malloc error size(%d)", msg.msg_length);
+	}
 }
 
 void uart_send_task(void *arg)
@@ -83,7 +86,7 @@ void uart_send_task(void *arg)
 	while(1)
 	{
 		if(xQueueReceive(uart_send_queue, (void * )&event, (portTickType)portMAX_DELAY)) {
-			if(event.msg_length) {
+			if(event.buffer) {
 				uart_write_bytes(UART_PORT_NUM, (const char*) event.buffer, event.msg_length);
 				free(event.buffer);
 			}
@@ -162,11 +165,13 @@ bool uart_buffer_get(uint8_t* tmp_buffer, uint16_t size)
 	bool 		over_flow 	= false;
 	uint16_t	tmp_pos 	= 0;
 
+	//check for over flow of the buffer
 	if(size > uart_buffer_length) {
 		size = uart_buffer_length;
 		over_flow = true;
 	}
 
+	//check current to see if we will be reading beyond the end of the buffer, if so get partial data from end and wrap afterwards
 	if(uart_buffer_pos + size > UART_BUFFER_SIZE) {
 		uint16_t partial_size = UART_BUFFER_SIZE - uart_buffer_pos;
 		memcpy(tmp_buffer, &uart_buffer[uart_buffer_pos], partial_size);
@@ -176,6 +181,7 @@ bool uart_buffer_get(uint8_t* tmp_buffer, uint16_t size)
 		tmp_pos = partial_size;
 	}
 
+	//read the remaining data from buffer
 	if(size) {
 		memcpy(&tmp_buffer[tmp_pos], &uart_buffer[uart_buffer_pos], size);
 		uart_buffer_length -= size;
@@ -211,7 +217,7 @@ bool uart_buffer_parse()
 		//if we are just starting a packet set our timeout
 		if(!uart_packet_started) {
 			uart_packet_started = true;
-			xSemaphoreTake(sleep_uart_packet_sem, 0);
+			xSemaphoreTake(ch_uart_packet_timer_sem, 0);
 		}
 
 		//get packet length
@@ -222,12 +228,19 @@ bool uart_buffer_parse()
 		//if data is >= to packet length, send it
 		if(uart_buffer_length >= packet_len) {
 			uint8_t* packet_data = malloc(packet_len);
-			uart_buffer_get(packet_data, packet_len);
-			uart_data_received((void*)packet_data, packet_len);
-			free(packet_data);
+			if (packet_data) {
+				uart_buffer_get(packet_data, packet_len);
+				uart_data_received((void*)packet_data, packet_len);
+				free(packet_data);
 
-			uart_packet_started = false;
-			return true;
+				uart_packet_started = false;
+				return true;
+			} else {
+				ESP_LOGD(UART_TAG, "uart_buffer_parse: malloc error size(%d)", packet_len);
+
+				//clear current buffer on malloc error
+				uart_buffer_clear();
+			}
 		}
 	}
 
@@ -250,10 +263,14 @@ void uart_receive_task(void *arg)
 				case UART_DATA:
 					ESP_LOGI(UART_TAG, "[UART DATA]: %d", event.size);
 					uint8_t* tmp_buffer = malloc(event.size);
-					uart_read_bytes(UART_PORT_NUM, tmp_buffer, event.size, portMAX_DELAY);
-					uart_buffer_add(tmp_buffer, event.size);
-					free(tmp_buffer);
-					while(uart_buffer_parse());
+					if (tmp_buffer) {
+						uart_read_bytes(UART_PORT_NUM, tmp_buffer, event.size, portMAX_DELAY);
+						uart_buffer_add(tmp_buffer, event.size);
+						free(tmp_buffer);
+						while (uart_buffer_parse());
+					} else {
+						ESP_LOGD(UART_TAG, "uart_receive_task: malloc error size(%d)", event.size);
+					}
                     break;
                 //Event of HW FIFO overflow detected
                 case UART_FIFO_OVF:

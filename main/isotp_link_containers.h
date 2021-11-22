@@ -1,14 +1,16 @@
 #ifndef __ISOTP_LINK_CONTAINERS_H__
 #define __ISOTP_LINK_CONTAINERS_H__
 
-#define NUM_ISOTP_LINK_CONTAINERS 5
+#define NUM_ISOTP_LINK_CONTAINERS 4
 
 typedef struct IsoTpLinkContainer {
+    char    name[32];
     IsoTpLink link;
     SemaphoreHandle_t wait_for_isotp_data_sem;
     uint8_t *recv_buf;
     uint8_t *send_buf;
     uint8_t *payload_buf;
+    uint32_t buffer_size;
 } IsoTpLinkContainer;
 
 IsoTpLinkContainer isotp_link_containers[NUM_ISOTP_LINK_CONTAINERS];

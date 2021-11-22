@@ -5,7 +5,6 @@
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
 #include "driver/twai.h"
-#include "sdkconfig.h"
 #include "esp_pm.h"
 #include "esp_sleep.h"
 #include "esp_err.h"
@@ -23,7 +22,7 @@
 #include "led.h"
 #include "eeprom.h"
 #include "uart.h"
-#include "sleep.h"
+#include "connection_handler.h"
 
 #define BRIDGE_TAG 					"Bridge"
 
@@ -108,8 +107,9 @@ void send_packet(uint32_t txID, uint32_t rxID, uint8_t flags, const void* src, s
 static void isotp_processing_task(void *arg)
 {
     IsoTpLinkContainer *isotp_link_container = (IsoTpLinkContainer*)arg;
-    IsoTpLink *link_ptr = &isotp_link_container->link;;
+    IsoTpLink *link_ptr = &isotp_link_container->link;
 	uint8_t *payload_buf = isotp_link_container->payload_buf;
+	
     while (1)
     {
         if (link_ptr->send_status != ISOTP_SEND_STATUS_INPROGRESS &&
@@ -125,7 +125,7 @@ static void isotp_processing_task(void *arg)
         // receive
 		xSemaphoreTake(isotp_mutex, pdMS_TO_TICKS(TIMEOUT_NORMAL));
         uint16_t out_size;
-        int ret = isotp_receive(link_ptr, payload_buf, ISOTP_BUFSIZE, &out_size);
+        int ret = isotp_receive(link_ptr, payload_buf, isotp_link_container->buffer_size, &out_size);
         xSemaphoreGive(isotp_mutex);
         // if it is time to send fully received + parsed ISO-TP data over BLE and/or websocket
         if (ISOTP_RET_OK == ret) {
@@ -192,23 +192,22 @@ static void isotp_send_queue_task(void *arg)
 
 void isotp_start_task()
 {
-	// Tasks :
-	// "ISOTP_process" pumps the ISOTP library's "poll" method, which will call the send queue callback if a message needs to be sent.
-    // ISOTP_process also polls the ISOTP library's non-blocking receive method, which will produce a message if one is ready.
-    // "MAIN_process_send_queue" processes queued messages from the BLE stack. These messages are dynamically allocated when they are queued and freed in this task.
+	// create tasks for each isotp_link
+	for (uint16_t i = 0; i < NUM_ISOTP_LINK_CONTAINERS; i++)
+	{
+		IsoTpLinkContainer* isotp_link_container = &isotp_link_containers[i];
+		xTaskCreate(isotp_processing_task, isotp_link_container->name, TASK_STACK_SIZE, isotp_link_container, ISOTP_TSK_PRIO, NULL);
+	}
 
-	xTaskCreatePinnedToCore(isotp_processing_task, "ecu_ISOTP_process", 4096, &isotp_link_containers[0], ISOTP_TSK_PRIO, NULL, tskNO_AFFINITY);
-    xTaskCreatePinnedToCore(isotp_processing_task, "tcu_ISOTP_process", 4096, &isotp_link_containers[1], ISOTP_TSK_PRIO, NULL, tskNO_AFFINITY);
-    xTaskCreatePinnedToCore(isotp_processing_task, "ptcu_ISOTP_process", 4096, &isotp_link_containers[2], ISOTP_TSK_PRIO, NULL, tskNO_AFFINITY);
-	xTaskCreatePinnedToCore(isotp_processing_task, "gateway_ISOTP_process", 4096, &isotp_link_containers[3], ISOTP_TSK_PRIO, NULL, tskNO_AFFINITY);
-	xTaskCreatePinnedToCore(isotp_processing_task, "dtc_ISOTP_process", 4096, &isotp_link_containers[4], ISOTP_TSK_PRIO, NULL, tskNO_AFFINITY);
-	xTaskCreatePinnedToCore(isotp_send_queue_task, "ISOTP_process_send_queue", 4096, NULL, MAIN_TSK_PRIO, NULL, tskNO_AFFINITY);
+	// "ISOTP_process" pumps the ISOTP library's "poll" method, which will call the send queue callback if a message needs to be sent.
+	// ISOTP_process also polls the ISOTP library's non-blocking receive method, which will produce a message if one is ready.
+	xTaskCreate(isotp_send_queue_task, "ISOTP_process_send_queue", TASK_STACK_SIZE, NULL, MAIN_TSK_PRIO, NULL);
 }
 
 void isotp_init()
 {
 	isotp_mutex = xSemaphoreCreateMutex();
-	isotp_send_message_queue = xQueueCreate(MESSAGE_QUEUE_SIZE, sizeof(send_message_t));
+	isotp_send_message_queue = xQueueCreate(ISOTP_QUEUE_SIZE, sizeof(send_message_t));
 
 	configure_isotp_links();
 }
@@ -395,7 +394,7 @@ bool parse_packet(ble_header_t* header, uint8_t* data)
 							ble_set_gap_name(str, true);
 							eeprom_write_str(BLE_GAP_KEY, str);
 							eeprom_commit();
-							xSemaphoreGive(sleep_sem);
+							xSemaphoreGive(ch_sleep_sem);
 							return true;
 						}
 						break;
@@ -447,9 +446,14 @@ bool parse_packet(ble_header_t* header, uint8_t* data)
 				msg.rxID = header->txID;
 				msg.txID = header->rxID;
 				msg.buffer = malloc(header->cmdSize);
-				memcpy(msg.buffer, data, header->cmdSize);
+				if (msg.buffer) {
+					memcpy(msg.buffer, data, header->cmdSize);
 
-				xQueueSend(isotp_send_message_queue, &msg, pdMS_TO_TICKS(TIMEOUT_NORMAL));
+					xQueueSend(isotp_send_message_queue, &msg, pdMS_TO_TICKS(TIMEOUT_NORMAL));
+				} else {
+					ESP_LOGD(BRIDGE_TAG, "parse_packet: malloc fail size(%d)", header->cmdSize);
+					return false;
+				}
 			}
 
 			return true;
@@ -493,30 +497,37 @@ void packet_received(const void* src, size_t size)
 	if(split_enabled && data[0] == BLE_PARTIAL_ID) {
 		//check packet count
 		if(data[1] == split_count) {
-			ESP_LOGI(BRIDGE_TAG, "Split packet [%02X] adding [%02X]", split_count, size-2);
+			if (split_data && split_length) {
+				ESP_LOGI(BRIDGE_TAG, "Split packet [%02X] adding [%02X]", split_count, size - 2);
 
-			uint8_t* new_data = malloc(split_length + size - 2);
-			if(new_data == NULL){
-				ESP_LOGI(BRIDGE_TAG, "malloc error %s %d", __func__, __LINE__);
-				split_clear();
-				return;
-			}
-			memcpy(new_data, split_data, split_length);
-			memcpy(new_data + split_length, data + 2, size - 2);
-			free(split_data);
-			split_data = new_data;
-			split_length += size-2;
-			split_count++;
+				uint8_t* new_data = malloc(split_length + size - 2);
+				if (new_data == NULL) {
+					ESP_LOGI(BRIDGE_TAG, "malloc error %s %d", __func__, __LINE__);
+					split_clear();
+					return;
+				}
+				memcpy(new_data, split_data, split_length);
+				memcpy(new_data + split_length, data + 2, size - 2);
+				free(split_data);
+				split_data = new_data;
+				split_length += size - 2;
+				split_count++;
 
-			//got complete message
-			if(split_length == split_header.cmdSize)
-			{   //Messsage size matches
-				ESP_LOGI(BRIDGE_TAG, "Split packet size matches [%02X]", split_length);
-				parse_packet(&split_header, split_data);
-				split_clear();
-			} else if(split_length > split_header.cmdSize)
-			{   //Message size does not match
-				ESP_LOGI(BRIDGE_TAG, "Command size is larger than packet size [%02X, %02X]", split_header.cmdSize, split_length);
+				//got complete message
+				if (split_length == split_header.cmdSize)
+				{   //Messsage size matches
+					ESP_LOGI(BRIDGE_TAG, "Split packet size matches [%02X]", split_length);
+					parse_packet(&split_header, split_data);
+					split_clear();
+				}
+				else if (split_length > split_header.cmdSize)
+				{   //Message size does not match
+					ESP_LOGI(BRIDGE_TAG, "Command size is larger than packet size [%02X, %02X]", split_header.cmdSize, split_length);
+					split_clear();
+				}
+			} else {
+				//error delete and forget
+				ESP_LOGI(BRIDGE_TAG, "Splitpacket data is invalid");
 				split_clear();
 			}
 		} else {
@@ -589,7 +600,7 @@ void received_from_ble(const void* src, size_t size)
 void uart_data_received(const void* src, size_t size)
 {
 	if(!ble_connected()) {
-		sleep_reset_uart();
+		ch_reset_uart_timer();
 		packet_received(src, size);
 #if UART_ECHO
 		send_packet(0xFF, 0xFF, 0, src+sizeof(ble_header_t), size-sizeof(ble_header_t));
@@ -599,7 +610,7 @@ void uart_data_received(const void* src, size_t size)
 
 /* ----------- BLE/UART callbacks ---------------- */
 
-void bridge_connection() {
+void bridge_connect() {
 	//set to green
 	led_setcolor(LED_GREEN_QRT);
 
@@ -610,7 +621,7 @@ void bridge_connection() {
 	passwordChecked = true;
 }
 
-void bridge_disconnection()
+void bridge_disconnect()
 {
 	//set led to low red
 	led_setcolor(LED_RED_EHT);
@@ -622,24 +633,24 @@ void bridge_disconnection()
 	passwordChecked = true;
 }
 
-void sleep_on_connection()
+void ch_on_uart_connect()
 {
-	bridge_connection();
+	bridge_connect();
 }
 
-void sleep_on_disconnection()
+void ch_on_uart_disconnect()
 {
-	bridge_disconnection();
+	bridge_disconnect();
 }
 
 void ble_notifications_enabled()
 {
-	bridge_connection();
+	bridge_connect();
 }
 
 void ble_notifications_disabled()
 {
-	bridge_disconnection();
+	bridge_disconnect();
 }
 
 /* ------------ Primary startup ---------------- */
@@ -666,7 +677,7 @@ void app_main(void)
 	ble_server_setup(callbacks);
 
 	//Init
-	sleep_init();
+	ch_init();
 	led_init();
 	uart_init();
 	twai_init();
@@ -677,11 +688,11 @@ void app_main(void)
 	twai_start_task();
 	isotp_start_task();
 	persist_start_task();
-	sleep_start_task();
 	uart_start_task();
+	ch_start_task();
 
 	//Wait for sleep command
-	xSemaphoreTake(sleep_sem, portMAX_DELAY);
+	xSemaphoreTake(ch_sleep_sem, portMAX_DELAY);
 
 	//setup sleep timer
 	esp_sleep_enable_timer_wakeup(SLEEP_TIME * US_TO_S);

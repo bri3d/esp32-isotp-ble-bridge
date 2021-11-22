@@ -38,7 +38,7 @@ void persist_deinit()
 
 void persist_start_task()
 {
-	xTaskCreatePinnedToCore(persist_task, "PERSIST_process", 4096, NULL, PERSIST_TSK_PRIO, NULL, tskNO_AFFINITY);
+	xTaskCreate(persist_task, "PERSIST_process", TASK_STACK_SIZE, NULL, PERSIST_TSK_PRIO, NULL);
 }
 
 int16_t persist_send()

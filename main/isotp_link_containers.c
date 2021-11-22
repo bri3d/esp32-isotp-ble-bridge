@@ -16,76 +16,73 @@ void configure_isotp_links()
     xSemaphoreTake(isotp_mutex, pdMS_TO_TICKS(TIMEOUT_LONG));
 	// RX_ID + TX_ID are flipped because this device acts as a "tester" listening for responses from ECUs. the ECU's TX is our RX
     // TODO: make these configurable via j2534 filters
-    IsoTpLinkContainer *ecu_isotp_link_container = &isotp_link_containers[0];
-    IsoTpLinkContainer *tcu_isotp_link_container = &isotp_link_containers[1];
-    IsoTpLinkContainer *ptcu_isotp_link_container = &isotp_link_containers[2];
-	IsoTpLinkContainer *gateway_isotp_link_container = &isotp_link_containers[3];
-	IsoTpLinkContainer *dtc_isotp_link_container = &isotp_link_containers[4];
+    IsoTpLinkContainer *ecu_isotp_link_container	= &isotp_link_containers[0];
+    IsoTpLinkContainer *tcu_isotp_link_container	= &isotp_link_containers[1];
+    IsoTpLinkContainer *haldex_isotp_link_container = &isotp_link_containers[2];
+	IsoTpLinkContainer *dtc_isotp_link_container	= &isotp_link_containers[3];
 
 	// ECU
-	ecu_isotp_link_container->recv_buf = calloc(1, ISOTP_BUFSIZE);
-	ecu_isotp_link_container->send_buf = calloc(1, ISOTP_BUFSIZE);
-	ecu_isotp_link_container->payload_buf = calloc(1, ISOTP_BUFSIZE);
+	strcpy(ecu_isotp_link_container->name, "isotp_container_ecu");
+	ecu_isotp_link_container->buffer_size = ISOTP_BUFFER_SIZE;
+	ecu_isotp_link_container->recv_buf = calloc(1, ecu_isotp_link_container->buffer_size);
+	ecu_isotp_link_container->send_buf = calloc(1, ecu_isotp_link_container->buffer_size);
+	ecu_isotp_link_container->payload_buf = calloc(1, ecu_isotp_link_container->buffer_size);
 	assert(ecu_isotp_link_container->recv_buf != NULL);
 	assert(ecu_isotp_link_container->send_buf != NULL);
 	assert(ecu_isotp_link_container->payload_buf != NULL);
 	isotp_init_link(
 		&ecu_isotp_link_container->link,
 		0x7E0, 0x7E8,
-		ecu_isotp_link_container->send_buf, ISOTP_BUFSIZE,
-		ecu_isotp_link_container->recv_buf, ISOTP_BUFSIZE
+		ecu_isotp_link_container->send_buf, ecu_isotp_link_container->buffer_size,
+		ecu_isotp_link_container->recv_buf, ecu_isotp_link_container->buffer_size
 	);
+
     // TCU
-    tcu_isotp_link_container->recv_buf = calloc(1, ISOTP_BUFSIZE);
-    tcu_isotp_link_container->send_buf = calloc(1, ISOTP_BUFSIZE);
-    tcu_isotp_link_container->payload_buf = calloc(1, ISOTP_BUFSIZE);
+	strcpy(tcu_isotp_link_container->name, "isotp_container_tcu");
+	tcu_isotp_link_container->buffer_size = ISOTP_BUFFER_SIZE;
+    tcu_isotp_link_container->recv_buf = calloc(1, tcu_isotp_link_container->buffer_size);
+    tcu_isotp_link_container->send_buf = calloc(1, tcu_isotp_link_container->buffer_size);
+    tcu_isotp_link_container->payload_buf = calloc(1, tcu_isotp_link_container->buffer_size);
     assert(tcu_isotp_link_container->recv_buf != NULL);
     assert(tcu_isotp_link_container->send_buf != NULL);
     assert(tcu_isotp_link_container->payload_buf != NULL);
 	isotp_init_link(
         &tcu_isotp_link_container->link,
         0x7E1, 0x7E9,
-        tcu_isotp_link_container->send_buf, ISOTP_BUFSIZE,
-        tcu_isotp_link_container->recv_buf, ISOTP_BUFSIZE
+        tcu_isotp_link_container->send_buf, tcu_isotp_link_container->buffer_size,
+        tcu_isotp_link_container->recv_buf, tcu_isotp_link_container->buffer_size
     );
-    // PTCU
-    ptcu_isotp_link_container->recv_buf = calloc(1, ISOTP_BUFSIZE);
-    ptcu_isotp_link_container->send_buf = calloc(1, ISOTP_BUFSIZE);
-    ptcu_isotp_link_container->payload_buf = calloc(1, ISOTP_BUFSIZE);
-    assert(ptcu_isotp_link_container->recv_buf != NULL);
-    assert(ptcu_isotp_link_container->send_buf != NULL);
-    assert(ptcu_isotp_link_container->payload_buf != NULL);
+
+    // HALDEX
+	strcpy(haldex_isotp_link_container->name, "isotp_container_haldex");
+	haldex_isotp_link_container->buffer_size = ISOTP_BUFFER_SIZE;
+	haldex_isotp_link_container->recv_buf = calloc(1, haldex_isotp_link_container->buffer_size);
+	haldex_isotp_link_container->send_buf = calloc(1, haldex_isotp_link_container->buffer_size);
+	haldex_isotp_link_container->payload_buf = calloc(1, haldex_isotp_link_container->buffer_size);
+    assert(haldex_isotp_link_container->recv_buf != NULL);
+    assert(haldex_isotp_link_container->send_buf != NULL);
+    assert(haldex_isotp_link_container->payload_buf != NULL);
     isotp_init_link(
-        &ptcu_isotp_link_container->link,
+        &haldex_isotp_link_container->link,
         0x7E5, 0x7ED,
-        ptcu_isotp_link_container->send_buf, ISOTP_BUFSIZE,
-        ptcu_isotp_link_container->recv_buf, ISOTP_BUFSIZE
+		haldex_isotp_link_container->send_buf, haldex_isotp_link_container->buffer_size,
+		haldex_isotp_link_container->recv_buf, haldex_isotp_link_container->buffer_size
     );
-    // Gateway
-    gateway_isotp_link_container->recv_buf = calloc(1, ISOTP_BUFSIZE);
-    gateway_isotp_link_container->send_buf = calloc(1, ISOTP_BUFSIZE);
-    gateway_isotp_link_container->payload_buf = calloc(1, ISOTP_BUFSIZE);
-    assert(gateway_isotp_link_container->recv_buf != NULL);
-    assert(gateway_isotp_link_container->send_buf != NULL);
-    assert(gateway_isotp_link_container->payload_buf != NULL);
-    isotp_init_link(
-        &gateway_isotp_link_container->link,
-        0x607, 0x587,
-        gateway_isotp_link_container->send_buf, ISOTP_BUFSIZE,
-        gateway_isotp_link_container->recv_buf, ISOTP_BUFSIZE
-	);
+
 	// DTC
-	dtc_isotp_link_container->recv_buf = calloc(1, ISOTP_BUFSIZE);
-	dtc_isotp_link_container->send_buf = calloc(1, ISOTP_BUFSIZE);
-	dtc_isotp_link_container->payload_buf = calloc(1, ISOTP_BUFSIZE);
+	strcpy(dtc_isotp_link_container->name, "isotp_container_dtc");
+	dtc_isotp_link_container->buffer_size = ISOTP_BUFFER_SIZE_SMALL;
+	dtc_isotp_link_container->recv_buf = calloc(1, dtc_isotp_link_container->buffer_size);
+	dtc_isotp_link_container->send_buf = calloc(1, dtc_isotp_link_container->buffer_size);
+	dtc_isotp_link_container->payload_buf = calloc(1, dtc_isotp_link_container->buffer_size);
 	assert(dtc_isotp_link_container->recv_buf != NULL);
 	assert(dtc_isotp_link_container->send_buf != NULL);
 	assert(dtc_isotp_link_container->payload_buf != NULL);
 	isotp_init_link(
 		&dtc_isotp_link_container->link,
 		0x700, 0x7E8,
-		dtc_isotp_link_container->send_buf, ISOTP_BUFSIZE,
-		dtc_isotp_link_container->recv_buf, ISOTP_BUFSIZE
+		dtc_isotp_link_container->send_buf, dtc_isotp_link_container->buffer_size,
+		dtc_isotp_link_container->recv_buf, dtc_isotp_link_container->buffer_size
 	);
 
 	//create semaphores for each link

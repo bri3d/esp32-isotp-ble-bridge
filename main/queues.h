@@ -4,9 +4,9 @@
 #include "freertos/queue.h"
 
 //Queue sizes
-#define TASK_QUEUE_SIZE     		64
-#define MESSAGE_QUEUE_SIZE			64
-#define UART_QUEUE_SIZE				64
+#define CAN_QUEUE_SIZE     			64
+#define ISOTP_QUEUE_SIZE			64
+#define UART_QUEUE_SIZE				96
 
 QueueHandle_t uart_send_queue;
 QueueHandle_t uart_receive_queue;

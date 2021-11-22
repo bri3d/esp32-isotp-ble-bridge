@@ -2,7 +2,6 @@
 #define WS2812_CONTROL
 #include <stdint.h>
 #include "hal/gpio_types.h"
-#include "sdkconfig.h"
 #define NUM_LEDS 1
 
 // This structure is used for indicating what the colors of each LED should be set to.

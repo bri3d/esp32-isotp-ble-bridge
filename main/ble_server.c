@@ -474,10 +474,10 @@ void spp_cmd_task(void * arg)
 
 static void spp_task_init(void)
 {
-	spp_send_queue = xQueueCreate(SEND_QUEUE_SIZE, sizeof(send_message_t));
-	xTaskCreate(send_task, "BLE_sendTask", 2048, NULL, 1, NULL);
-	cmd_cmd_queue = xQueueCreate(SEND_QUEUE_SIZE, sizeof(uint32_t));
-	xTaskCreate(spp_cmd_task, "spp_cmd_task", 2048, NULL, 1, NULL);
+	spp_send_queue = xQueueCreate(BLE_QUEUE_SIZE, sizeof(send_message_t));
+	xTaskCreate(send_task, "BLE_sendTask", BLE_STACK_SIZE, NULL, BLE_TASK_PRIORITY, NULL);
+	cmd_cmd_queue = xQueueCreate(BLE_QUEUE_SIZE, sizeof(uint32_t));
+	xTaskCreate(spp_cmd_task, "spp_cmd_task", BLE_STACK_SIZE, NULL, BLE_TASK_PRIORITY, NULL);
 }
 
 static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param)

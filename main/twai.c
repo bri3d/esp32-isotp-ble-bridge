@@ -14,19 +14,19 @@
 #define TWAI_TAG 		"TWAI"
 
 static const twai_general_config_t g_config = {
-	.mode = TWAI_MODE_NORMAL,
-	.tx_io = TX_GPIO_NUM,
-	.rx_io = RX_GPIO_NUM,
-	.clkout_io = TWAI_IO_UNUSED,
-	.bus_off_io = TWAI_IO_UNUSED,
-	.tx_queue_len = 1024,
-	.rx_queue_len = 1024,
-	.alerts_enabled = TWAI_ALERT_NONE,
-	.clkout_divider = 0,
-	.intr_flags = ESP_INTR_FLAG_LEVEL1
+	.mode = CAN_MODE,
+	.tx_io = CAN_TX_PORT,
+	.rx_io = CAN_RX_PORT,
+	.clkout_io = CAN_CLK_IO,
+	.bus_off_io = CAN_BUS_IO,
+	.tx_queue_len = CAN_INTERNAL_BUFFER_SIZE,
+	.rx_queue_len = CAN_INTERNAL_BUFFER_SIZE,
+	.alerts_enabled = CAN_ALERTS,
+	.clkout_divider = CAN_CLK_DIVIDER,
+	.intr_flags = CAN_FLAGS
 };
-static const twai_timing_config_t t_config = TWAI_TIMING_CONFIG_500KBITS();
-static const twai_filter_config_t f_config = TWAI_FILTER_CONFIG_ACCEPT_ALL();
+static const twai_timing_config_t t_config = CAN_TIMING;
+static const twai_filter_config_t f_config = CAN_FILTER;
 
 void twai_receive_task(void *arg);
 void twai_transmit_task(void *arg);
@@ -49,7 +49,7 @@ void twai_init()
 	ESP_ERROR_CHECK(twai_start());
 	ESP_LOGI(TWAI_TAG, "CAN/TWAI Driver started");
 
-	can_send_queue = xQueueCreate(TASK_QUEUE_SIZE, sizeof(twai_message_t));
+	can_send_queue = xQueueCreate(CAN_QUEUE_SIZE, sizeof(twai_message_t));
 }
 
 void twai_deinit()
@@ -60,8 +60,8 @@ void twai_deinit()
 
 void twai_start_task()
 {
-	xTaskCreatePinnedToCore(twai_receive_task, "TWAI_rx", 4096, NULL, RX_TASK_PRIO, NULL, tskNO_AFFINITY);
-	xTaskCreatePinnedToCore(twai_transmit_task, "TWAI_tx", 4096, NULL, TX_TASK_PRIO, NULL, tskNO_AFFINITY);
+	xTaskCreate(twai_receive_task, "TWAI_rx", TASK_STACK_SIZE, NULL, RX_TASK_PRIO, NULL);
+	xTaskCreate(twai_transmit_task, "TWAI_tx", TASK_STACK_SIZE, NULL, TX_TASK_PRIO, NULL);
 }
 
 void twai_send_isotp_message(IsoTpLinkContainer* link, twai_message_t* msg)
@@ -79,11 +79,12 @@ void twai_send_isotp_message(IsoTpLinkContainer* link, twai_message_t* msg)
 
 void twai_receive_task(void *arg)
 {
+	twai_message_t twai_rx_msg;
+
     while (1)
 	{
-		twai_message_t twai_rx_msg;
 		twai_receive(&twai_rx_msg, portMAX_DELAY); // If no message available, should block and yield.
-		xSemaphoreTake(sleep_can_sem, 0);
+		xSemaphoreTake(ch_can_timer_sem, 0);
 		ESP_LOGI(TWAI_TAG, "Received TWAI %08X and length %08X", twai_rx_msg.identifier, twai_rx_msg.data_length_code);
         for (int i = 0; i < twai_rx_msg.data_length_code; i++) {
 			ESP_LOGD(TWAI_TAG, "RX Data: %02X", twai_rx_msg.data[i]);
@@ -107,16 +108,17 @@ void twai_receive_task(void *arg)
 
 void twai_transmit_task(void *arg)
 {
+	twai_message_t twai_tx_msg;
+
     while (1)
     {
-        twai_message_t tx_msg;
-		xQueueReceive(can_send_queue, &tx_msg, portMAX_DELAY);
-        ESP_LOGD(TWAI_TAG, "Sending TWAI Message with ID %08X", tx_msg.identifier);
-        for (int i = 0; i < tx_msg.data_length_code; i++) {
-            ESP_LOGD(TWAI_TAG, "TX Data: %02X", tx_msg.data[i]);
+		xQueueReceive(can_send_queue, &twai_tx_msg, portMAX_DELAY);
+        ESP_LOGD(TWAI_TAG, "Sending TWAI Message with ID %08X", twai_tx_msg.identifier);
+        for (int i = 0; i < twai_tx_msg.data_length_code; i++) {
+            ESP_LOGD(TWAI_TAG, "TX Data: %02X", twai_tx_msg.data[i]);
         }
-        twai_transmit(&tx_msg, portMAX_DELAY);
-		ESP_LOGD(TWAI_TAG, "Sent TWAI Message with ID %08X", tx_msg.identifier);
+        twai_transmit(&twai_tx_msg, portMAX_DELAY);
+		ESP_LOGD(TWAI_TAG, "Sent TWAI Message with ID %08X", twai_tx_msg.identifier);
 		taskYIELD();
     }
     vTaskDelete(NULL);
