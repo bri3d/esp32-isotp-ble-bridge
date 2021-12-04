@@ -22,6 +22,7 @@ void configure_isotp_links()
 	IsoTpLinkContainer *dtc_isotp_link_container	= &isotp_link_containers[3];
 
 	// ECU
+	ecu_isotp_link_container->number = 0;
 	strcpy(ecu_isotp_link_container->name, "isotp_container_ecu");
 	ecu_isotp_link_container->buffer_size = ISOTP_BUFFER_SIZE;
 	ecu_isotp_link_container->recv_buf = calloc(1, ecu_isotp_link_container->buffer_size);
@@ -38,6 +39,7 @@ void configure_isotp_links()
 	);
 
     // TCU
+	tcu_isotp_link_container->number = 1;
 	strcpy(tcu_isotp_link_container->name, "isotp_container_tcu");
 	tcu_isotp_link_container->buffer_size = ISOTP_BUFFER_SIZE;
     tcu_isotp_link_container->recv_buf = calloc(1, tcu_isotp_link_container->buffer_size);
@@ -54,6 +56,7 @@ void configure_isotp_links()
     );
 
     // HALDEX
+	haldex_isotp_link_container->number = 2;
 	strcpy(haldex_isotp_link_container->name, "isotp_container_haldex");
 	haldex_isotp_link_container->buffer_size = ISOTP_BUFFER_SIZE;
 	haldex_isotp_link_container->recv_buf = calloc(1, haldex_isotp_link_container->buffer_size);
@@ -70,6 +73,7 @@ void configure_isotp_links()
     );
 
 	// DTC
+	dtc_isotp_link_container->number = 3;
 	strcpy(dtc_isotp_link_container->name, "isotp_container_dtc");
 	dtc_isotp_link_container->buffer_size = ISOTP_BUFFER_SIZE_SMALL;
 	dtc_isotp_link_container->recv_buf = calloc(1, dtc_isotp_link_container->buffer_size);

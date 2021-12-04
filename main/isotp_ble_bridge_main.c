@@ -109,6 +109,7 @@ static void isotp_processing_task(void *arg)
     IsoTpLinkContainer *isotp_link_container = (IsoTpLinkContainer*)arg;
     IsoTpLink *link_ptr = &isotp_link_container->link;
 	uint8_t *payload_buf = isotp_link_container->payload_buf;
+	uint16_t number = isotp_link_container->number;
 	
     while (1)
     {
@@ -135,14 +136,14 @@ static void isotp_processing_task(void *arg)
 			}
 
 			//Are we in persist mode?
-			if(persist_enabled())
+			if(number < PERSIST_COUNT && persist_enabled())
 			{
 				//send time stamp instead of rx/tx
 				uint32_t time = (esp_timer_get_time() / 1000UL) & 0xFFFFFFFF;
 				uint16_t rxID = (time >> 16) & 0xFFFF;
 				uint16_t txID = time & 0xFFFF;
 				send_packet(txID, rxID, 0, payload_buf, out_size);
-				xSemaphoreGive(persist_message_send);
+				xSemaphoreGive(persist_message_send[number]);
 			} else {
 				send_packet(link_ptr->receive_arbitration_id, link_ptr->send_arbitration_id, 0, payload_buf, out_size);
 			}
@@ -336,7 +337,9 @@ bool parse_packet(ble_header_t* header, uint8_t* data)
 						if(header->cmdSize == sizeof(uint16_t))
 						{   //confirm correct command size
 							uint16_t* delay = (uint16_t*)data;
+							persist_take_all_mutex();
 							persist_set_delay(*delay);
+							persist_give_all_mutex();
 							ESP_LOGI(BRIDGE_TAG, "Set persist delay [%08X]", *delay);
 							return true;
 						}
@@ -346,7 +349,9 @@ bool parse_packet(ble_header_t* header, uint8_t* data)
 						if(header->cmdSize == sizeof(uint16_t))
 						{   //confirm correct command size
 							uint16_t* delay = (uint16_t*)data;
+							persist_take_all_mutex();
 							persist_set_q_delay(*delay);
+							persist_give_all_mutex();
 							ESP_LOGI(BRIDGE_TAG, "Set persist queue delay [%08X]", *delay);
 							return true;
 						}
@@ -400,63 +405,71 @@ bool parse_packet(ble_header_t* header, uint8_t* data)
 						break;
 				}
 			}
-		} else if(persist_enabled()) {
-			//We are in persistent mode
-			//Should we clear the persist messages in memory?
-			if(header->cmdFlags & BLE_COMMAND_FLAG_PER_CLEAR)
-			{
-				persist_clear();
-			}
-
-			//Should we disable persist mode?
-			if((header->cmdFlags & BLE_COMMAND_FLAG_PER_ENABLE) == 0)
-			{
-				persist_set(false);
-			} else {
-				//If we are still in persist mode only accept setting changes
-				return false;
-			}
 		} else {
-			//Not in persistent mode
-			if(header->cmdFlags & BLE_COMMAND_FLAG_PER_CLEAR)
-			{
-				persist_clear();
-			}
+		persist_take_all_mutex();
+			if (persist_enabled()) {
+				//We are in persistent mode
+				//Should we clear the persist messages in memory?
+				if (header->cmdFlags & BLE_COMMAND_FLAG_PER_CLEAR)
+				{
+					persist_clear();
+				}
 
-			if(header->cmdFlags & BLE_COMMAND_FLAG_PER_ADD)
-			{
-				persist_add(data, header->cmdSize);
-			}
+				//Should we disable persist mode?
+				if ((header->cmdFlags & BLE_COMMAND_FLAG_PER_ENABLE) == 0)
+				{
+					persist_set(false);
+				}
+				else {
+					//If we are still in persist mode only accept setting changes
+					persist_give_all_mutex();
+					return false;
+				}
+			} else {
+				//Not in persistent mode
+				if (header->cmdFlags & BLE_COMMAND_FLAG_PER_CLEAR)
+				{
+					persist_clear();
+				}
 
-			if(header->cmdFlags & BLE_COMMAND_FLAG_PER_ENABLE)
-			{
-				persist_set(true);
-				return false;
-			}
-		}
+				if (header->cmdFlags & BLE_COMMAND_FLAG_PER_ADD)
+				{
+					persist_add(header->txID, header->rxID, data, header->cmdSize);
+				}
 
-		if(header->cmdSize)
-		{
-			if(!persist_enabled())
-			{
-				ESP_LOGI(BRIDGE_TAG, "Received message [%04X]", header->cmdSize);
-
-				send_message_t msg;
-				msg.msg_length = header->cmdSize;
-				msg.rxID = header->txID;
-				msg.txID = header->rxID;
-				msg.buffer = malloc(header->cmdSize);
-				if (msg.buffer) {
-					memcpy(msg.buffer, data, header->cmdSize);
-
-					xQueueSend(isotp_send_message_queue, &msg, pdMS_TO_TICKS(TIMEOUT_NORMAL));
-				} else {
-					ESP_LOGD(BRIDGE_TAG, "parse_packet: malloc fail size(%d)", header->cmdSize);
+				if (header->cmdFlags & BLE_COMMAND_FLAG_PER_ENABLE)
+				{
+					persist_set(true);
+					persist_give_all_mutex();
 					return false;
 				}
 			}
+			persist_give_all_mutex();
 
-			return true;
+			if (header->cmdSize)
+			{
+				if (!persist_enabled())
+				{
+					ESP_LOGI(BRIDGE_TAG, "Received message [%04X]", header->cmdSize);
+
+					send_message_t msg;
+					msg.msg_length = header->cmdSize;
+					msg.rxID = header->txID;
+					msg.txID = header->rxID;
+					msg.buffer = malloc(header->cmdSize);
+					if (msg.buffer) {
+						memcpy(msg.buffer, data, header->cmdSize);
+
+						xQueueSend(isotp_send_message_queue, &msg, pdMS_TO_TICKS(TIMEOUT_NORMAL));
+					}
+					else {
+						ESP_LOGD(BRIDGE_TAG, "parse_packet: malloc fail size(%d)", header->cmdSize);
+						return false;
+					}
+				}
+
+				return true;
+			}
 		}
 	} else {
 		//password has not be accepted yet, check for password

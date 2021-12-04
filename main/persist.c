@@ -8,88 +8,115 @@
 #include "ble_server.h"
 #include "constants.h"
 #include "led.h"
+#include "persist.h"
+#include "isotp.h"
+#include "isotp_link_containers.h"
+#include "connection_handler.h"
 
 #define PERSIST_TAG							"Persist"
 
-#define MAX_MESSAGE_PERSIST					64
-#define PERSIST_DEFAULT_MESSAGE_DELAY		20
-#define PERSIST_DEFAULT_QUEUE_DELAY			10
+typedef struct {
+	send_message_t messages[PERSIST_MAX_MESSAGE];
+	uint16_t count;
+	uint16_t position;
+	uint16_t number;
+	uint16_t rxID;
+	uint16_t txID;
+} persist_t;
 
-send_message_t msgPersist[MAX_MESSAGE_PERSIST];
-uint16_t msgPersistCount 		= 0;
-uint16_t msgPersistPosition 	= 0;
-uint16_t msgPersistEnabled 		= false;
-uint16_t msgPersistDelay 		= PERSIST_DEFAULT_MESSAGE_DELAY;
-uint16_t msgPersistQDelay 		= PERSIST_DEFAULT_QUEUE_DELAY;
+uint16_t msgPersistDelay	= PERSIST_DEFAULT_MESSAGE_DELAY;
+uint16_t msgPersistQDelay	= PERSIST_DEFAULT_QUEUE_DELAY;
+uint16_t msgPersistEnabled	= false;
+persist_t msgPersists[PERSIST_COUNT];
 
 void persist_task(void *arg);
 
 void persist_init()
 {
-	persist_message_mutex = xSemaphoreCreateMutex();
-	persist_message_send = xSemaphoreCreateBinary();
+	for (uint16_t i = 0; i < PERSIST_COUNT; i++) {
+		persist_t* pPersist = &msgPersists[i];
+		pPersist->number = i;
+		pPersist->count = 0;
+		pPersist->position = 0;
+		pPersist->rxID = isotp_link_containers[i].link.send_arbitration_id;
+		pPersist->txID = isotp_link_containers[i].link.receive_arbitration_id;
+
+		persist_message_mutex[i] = xSemaphoreCreateMutex();
+		persist_message_send[i] = xSemaphoreCreateBinary();
+	}
 }
 
 void persist_deinit()
 {
-	vSemaphoreDelete(persist_message_send);
-	vSemaphoreDelete(persist_message_mutex);
+	persist_clear();
+
+	for (uint16_t i = 0; i < PERSIST_COUNT; i++) {
+		vSemaphoreDelete(persist_message_send[i]);
+		vSemaphoreDelete(persist_message_mutex[i]);
+	}
 }
 
 void persist_start_task()
 {
-	xTaskCreate(persist_task, "PERSIST_process", TASK_STACK_SIZE, NULL, PERSIST_TSK_PRIO, NULL);
+	for (uint16_t i = 0; i < PERSIST_COUNT; i++) {
+		persist_t* pPersist = &msgPersists[i];
+		xTaskCreate(persist_task, "PERSIST_process", TASK_STACK_SIZE, &pPersist->number, PERSIST_TSK_PRIO, NULL);
+	}
 }
 
-int16_t persist_send()
+int16_t persist_send(uint16_t persist)
 {
-	xSemaphoreTake(persist_message_mutex, pdMS_TO_TICKS(TIMEOUT_NORMAL));
-
-	//If be have been disconnected from BLE clear persist message
-	if(!ble_connected())
+	//make sure the persist value is valid
+	if (persist >= PERSIST_COUNT)
 	{
-		//clear messages
-		msgPersistEnabled = false;
-		for(uint16_t i=0; i<msgPersistCount; i++)
-		{
-			if(msgPersist[i].buffer)
-			{
-				free(msgPersist[i].buffer);
-				msgPersist[i].buffer = NULL;
-			}
-			msgPersist[i].msg_length = 0;
-		}
-		msgPersistPosition = 0;
-		msgPersistCount = 0;
-
-		xSemaphoreGive(persist_message_mutex);
 		return false;
 	}
 
+	//set persist pointer
+	persist_t* pPersist = &msgPersists[persist];
+
 	//If persist mode is disabled abort
-	if(!msgPersistEnabled || !msgPersistCount)
+	if (!msgPersistEnabled || !pPersist->count)
 	{
-		xSemaphoreGive(persist_message_mutex);
+		return false;
+	}
+
+	//If be have been disconnected from BLE and UART clear persist message
+	if(!ble_connected() && !ch_uart_connected())
+	{
+		//clear messages
+		msgPersistEnabled = false;
+		for(uint16_t i = 0; i < pPersist->count; i++)
+		{
+			send_message_t* pMsg = &pPersist->messages[i];
+			if(pMsg->buffer)
+			{
+				free(pMsg->buffer);
+				pMsg->buffer = NULL;
+			}
+			pMsg->msg_length = 0;
+		}
+		pPersist->position = 0;
+		pPersist->count = 0;
+
 		return false;
 	}
 
 	//don't flood the queues
 	if(uxQueueMessagesWaiting(isotp_send_message_queue) || !ble_queue_spaces())
 	{
-		xSemaphoreGive(persist_message_mutex);
 		return false;
 	}
 
 	//Cycle through messages
-	if(msgPersistPosition >= msgPersistCount)
-		msgPersistPosition = 0;
+	if(pPersist->position >= pPersist->count)
+		pPersist->position = 0;
 
 	//Make sure the message has length
-	uint16_t mPos = msgPersistPosition++;
-	send_message_t* pMsg = &msgPersist[mPos];
+	uint16_t mPos = pPersist->position++;
+	send_message_t* pMsg = &pPersist->messages[mPos];
 	if(pMsg->msg_length == 0)
 	{
-		xSemaphoreGive(persist_message_mutex);
 		return false;
 	}
 
@@ -98,82 +125,99 @@ int16_t persist_send()
 	msg.buffer = malloc(pMsg->msg_length);
 	if(msg.buffer == NULL){
 		ESP_LOGI(PERSIST_TAG, "malloc error %s %d", __func__, __LINE__);
-	} else {
-		memcpy(msg.buffer, pMsg->buffer, pMsg->msg_length);
-		msg.msg_length = pMsg->msg_length;
-		msg.rxID = 0x7E0;
-		msg.txID = 0x7E8;
-
-		xQueueSend(isotp_send_message_queue, &msg, pdMS_TO_TICKS(TIMEOUT_SHORT));
-
-		ESP_LOGI(PERSIST_TAG, "Persistent message sent [%04X]", msg.msg_length);
+		return false;
 	}
-	xSemaphoreGive(persist_message_mutex);
+
+	memcpy(msg.buffer, pMsg->buffer, pMsg->msg_length);
+	msg.msg_length = pMsg->msg_length;
+	msg.rxID = pMsg->rxID;
+	msg.txID = pMsg->txID;
+
+	xQueueSend(isotp_send_message_queue, &msg, pdMS_TO_TICKS(TIMEOUT_SHORT));
+
+	ESP_LOGI(PERSIST_TAG, "Persistent message sent [%04X]", msg.msg_length);
 
 	return true;
 }
 
 uint16_t persist_enabled()
 {
-	xSemaphoreTake(persist_message_mutex, pdMS_TO_TICKS(TIMEOUT_NORMAL));
-	uint16_t isEnabled = msgPersistEnabled;
-	xSemaphoreGive(persist_message_mutex);
-
-	return isEnabled;
+	return msgPersistEnabled;
 }
 
 void persist_set(uint16_t enable)
 {
-	xSemaphoreTake(persist_message_mutex, pdMS_TO_TICKS(TIMEOUT_NORMAL));
 	msgPersistEnabled = enable;
 
-	xSemaphoreGive(persist_message_mutex);
-	ESP_LOGI(PERSIST_TAG, "Persistent messages: %d", enable);
+	ESP_LOGI(PERSIST_TAG, "Persistent messages: %d", msgPersistEnabled);
 }
 
-int16_t persist_add(const void* src, size_t size)
+int16_t persist_add(uint16_t rx, uint16_t tx, const void* src, size_t size)
 {
-	if(!src || size == 0)
-		return false;
-
-	xSemaphoreTake(persist_message_mutex, pdMS_TO_TICKS(TIMEOUT_NORMAL));
-
-	if(msgPersistCount >= MAX_MESSAGE_PERSIST)
+	//set persist pointer
+	persist_t* pPersist = NULL;
+	for (uint16_t i = 0; i < PERSIST_COUNT; i++)
 	{
-		xSemaphoreGive(persist_message_mutex);
+		persist_t* persist = &msgPersists[i];
+		if (persist->rxID == rx && persist->txID == tx) {
+			pPersist = persist;
+			break;
+		}
+	}
+
+	if (pPersist == NULL)
+	{
 		return false;
 	}
 
-	send_message_t* pMsg = &msgPersist[msgPersistCount++];
-	pMsg->buffer = malloc(size);
+	//check for valid message
+	if (!src || size == 0)
+	{
+		return false;
+	}
+
+	if(pPersist->count >= PERSIST_MAX_MESSAGE)
+	{
+		return false;
+	}
+
+	send_message_t* pMsg = &pPersist->messages[pPersist->count++];
+	pMsg->rxID			= rx;
+	pMsg->txID			= tx;
+	pMsg->msg_length	= 0;
+	pMsg->buffer		= malloc(size);
 	if(pMsg->buffer == NULL){
 		ESP_LOGI(PERSIST_TAG, "malloc error %s %d", __func__, __LINE__);
-	} else {
-		memcpy(pMsg->buffer, src, size);
-		pMsg->msg_length = size;
-		ESP_LOGI(PERSIST_TAG, "Persistent message added [%04X]", size);
+		return false;
 	}
-	xSemaphoreGive(persist_message_mutex);
+	memcpy(pMsg->buffer, src, size);
+	pMsg->msg_length = size;
+	ESP_LOGI(PERSIST_TAG, "Persistent message added [%04X]", size);
 
 	return true;
 }
 
 void persist_clear()
 {
-	xSemaphoreTake(persist_message_mutex, pdMS_TO_TICKS(TIMEOUT_NORMAL));
 	msgPersistEnabled = false;
-	for(uint16_t i=0; i<msgPersistCount; i++)
-	{
-		if(msgPersist[i].buffer)
+	for (uint16_t d = 0; d < PERSIST_COUNT; d++) {
+		//set persist pointer
+		persist_t* pPersist = &msgPersists[d];
+
+		//clear all messages
+		for (uint16_t i = 0; i < pPersist->count; i++)
 		{
-			free(msgPersist[i].buffer);
-			msgPersist[i].buffer = NULL;
+			send_message_t* pMsg = &pPersist->messages[i];
+			if (pMsg->buffer)
+			{
+				free(pMsg->buffer);
+				pMsg->buffer = NULL;
+			}
+			pMsg->msg_length = 0;
 		}
-		msgPersist[i].msg_length = 0;
+		pPersist->position = 0;
+		pPersist->count = 0;
 	}
-	msgPersistPosition = 0;
-	msgPersistCount = 0;
-	xSemaphoreGive(persist_message_mutex);
 
 	ESP_LOGI(PERSIST_TAG, "Persistent messages cleared");
 }
@@ -181,9 +225,12 @@ void persist_clear()
 
 void persist_task(void *arg)
 {
+	uint16_t number = *((uint16_t*)arg);
 	while(1) {
-		xSemaphoreTake(persist_message_send, pdMS_TO_TICKS(TIMEOUT_NORMAL));
-		persist_send();
+		xSemaphoreTake(persist_message_send[number], pdMS_TO_TICKS(TIMEOUT_NORMAL));
+		xSemaphoreTake(persist_message_mutex[number], pdMS_TO_TICKS(TIMEOUT_NORMAL));
+		persist_send(number);
+		xSemaphoreGive(persist_message_mutex[number]);
 		vTaskDelay(pdMS_TO_TICKS(msgPersistDelay + (ble_queue_waiting() * msgPersistQDelay)));
 	}
 	vTaskDelete(NULL);
@@ -209,3 +256,14 @@ uint16_t persist_get_q_delay()
 	return msgPersistQDelay;
 }
 
+void persist_take_all_mutex()
+{
+	for(uint16_t i = 0; i < PERSIST_COUNT; i++)
+		xSemaphoreTake(persist_message_mutex[i], pdMS_TO_TICKS(TIMEOUT_NORMAL));
+}
+
+void persist_give_all_mutex()
+{
+	for (uint16_t i = 0; i < PERSIST_COUNT; i++)
+		xSemaphoreGive(persist_message_mutex[i]);
+}
