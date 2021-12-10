@@ -7,7 +7,7 @@
 #include "isotp_links.h"
 #include "periodic_messages.h"
 
-#define NUM_ISOTP_LINK_CONTAINERS 6
+#define NUM_ISOTP_LINK_CONTAINERS 7
 
 typedef struct IsoTpLinkContainer {
     IsoTpLink link;
