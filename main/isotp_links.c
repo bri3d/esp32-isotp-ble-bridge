@@ -40,7 +40,8 @@ void configure_isotp_links()
     configure_isotp_link(2, 0x7E5, 0x7ED, "ptcu");
     configure_isotp_link(3, 0x607, 0x587, "gateway");
     configure_isotp_link(4, 0x749, 0x729, "awd");
-    configure_isotp_link(5, 0x744, 0x724, "suspension");
+    configure_isotp_link(5, 0x744, 0x724, "suspension1");
+    configure_isotp_link(6, 0x692, 0x492, "suspension2");
     // free lock
     xSemaphoreGive(isotp_mutex);
 }
