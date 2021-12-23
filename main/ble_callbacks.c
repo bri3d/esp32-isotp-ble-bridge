@@ -135,6 +135,8 @@ void ble_command_received(uint8_t *input, size_t length)
             pointer += 4;
             char *name = malloc(name_len);
             memcpy(name, input + pointer, name_len);
+            // TODO: bounds checking on whether isotp_link_containers[link_index] is already initalized
+            // TODO: bounds checking on whether link_index > NUM_ISOTP_LINK_CONTAINERS - 1
             configure_isotp_link(link_index, receive_arbitration_id, reply_arbitration_id, name);
             break;
         }
