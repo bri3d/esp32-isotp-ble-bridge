@@ -88,6 +88,12 @@ void app_main(void)
     // CAN/TWAI driver
     ESP_ERROR_CHECK(twai_start());
     ESP_LOGI(MAIN_TAG, "CAN/TWAI Driver started");
+    // mark all isotp_link_containers uninitialized by default
+    for (int i = 0; i < NUM_ISOTP_LINK_CONTAINERS; ++i) {
+        IsoTpLinkContainer *isotp_link_container = &isotp_link_containers[i];
+        IsoTpLink *link_ptr = &isotp_link_container->link;
+        link_ptr->initialized = false;
+    }
     // Tasks :
     // "websocket_sendTask" polls the websocket_send_queue queue. This queue is populated when a ISO-TP PDU is received.
     // "TWAI_rx" polls the receive queue (blocking) and once a message exists, forwards it into the ISO-TP library.
