@@ -40,6 +40,7 @@ async def run(debug=False):
                 print("characteristic: ", characteristic)
         await client.start_notify(NOTIFY_CHARACTERISTIC_UUID, notification_handler)
         while(True):
+            # TODO: BLE command 0x06 configure_isotp_link
             await client.write_gatt_char(WRITE_CHARACTERISTIC_UUID, bytes([
                 0xe0, 0x07, 0x00, 0x00, # ECU RX_ID
                 0xe8, 0x07, 0x00, 0x00, # ECU TX_ID

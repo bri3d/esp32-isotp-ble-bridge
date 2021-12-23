@@ -50,7 +50,6 @@ typedef struct IsoTpLink {
 } IsoTpLink;
 
 void configure_isotp_link(int index, uint32_t receive_arbitration_id, uint32_t reply_arbitration_id, const char *name);
-void configure_isotp_links();
 
 #endif
 

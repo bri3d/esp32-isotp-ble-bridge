@@ -123,6 +123,21 @@ void ble_command_received(uint8_t *input, size_t length)
             }
             break;
         }
+        case 0x06: { // Command 6: configure ISO-TP link
+            int pointer = 1; // skip command_id
+            uint32_t link_index = read_uint32_be(input + pointer);
+            pointer += 4;
+            uint32_t receive_arbitration_id = read_uint32_be(input + pointer);
+            pointer += 4;
+            uint32_t reply_arbitration_id = read_uint32_be(input + pointer);
+            pointer += 4;
+            uint32_t name_len = read_uint32_be(input + pointer);
+            pointer += 4;
+            char *name = malloc(name_len);
+            memcpy(name, input + pointer, name_len);
+            configure_isotp_link(link_index, receive_arbitration_id, reply_arbitration_id, name);
+            break;
+        }
         default: {
             break;
         }
