@@ -54,6 +54,7 @@ void ble_command_received(uint8_t *input, size_t length)
             uint16_t rx_address = read_uint16_be(input + 3);
             ESP_LOGI(BLE_CALLBACKS_TAG, "command_received[0x01]: tx_address = %04x rx_address = %04x", tx_address, rx_address);
             // TODO: change global tx_id + rx_id even though we are trying to move away form that?
+            // TODO: send ble_command_received successful response
             break;
         }
         case 0x02: { // Command 2: upload chunk for ISO-TP payload
@@ -62,12 +63,14 @@ void ble_command_received(uint8_t *input, size_t length)
             uint8_t *bytes = input + 5;
             ESP_LOGI(BLE_CALLBACKS_TAG, "command_received[0x02]: offset = %04x length = %04x", offset, length);
             memcpy(command_buf + offset, bytes, length);
+            // TODO: send ble_command_received successful response
             break;
         }
         case 0x03: { // Command 3: flush ISO-TP payload chunks
             uint16_t length = read_uint16_be(input + 1);
             ESP_LOGI(BLE_CALLBACKS_TAG, "command_received[0x03]: length = %04x", length);
             received_from_ble(command_buf, length);
+            // TODO: send ble_command_received successful response
             break;
         }
         case 0x04: { // Command 4: start periodic message
@@ -106,6 +109,7 @@ void ble_command_received(uint8_t *input, size_t length)
             }
             // task
             xTaskCreatePinnedToCore(periodic_messages_task, "periodic_messages_task", 4096, periodic_message, ISOTP_TSK_PRIO, task_handle, tskNO_AFFINITY);
+            // TODO: send ble_command_received successful response
             break;
         }
         case 0x05: { // Command 5: stop periodic message
@@ -121,6 +125,25 @@ void ble_command_received(uint8_t *input, size_t length)
                 vTaskDelete(task_handle);
                 isotp_link_container->periodic_message_task_handles[periodic_message_index] = NULL;
             }
+            // TODO: send ble_command_received successful response
+            break;
+        }
+        case 0x06: { // Command 6: configure ISO-TP link
+            int pointer = 1; // skip command_id
+            uint32_t link_index = read_uint32_be(input + pointer);
+            pointer += 4;
+            uint32_t receive_arbitration_id = read_uint32_be(input + pointer);
+            pointer += 4;
+            uint32_t reply_arbitration_id = read_uint32_be(input + pointer);
+            pointer += 4;
+            uint32_t name_len = read_uint32_be(input + pointer);
+            pointer += 4;
+            char *name = malloc(name_len);
+            memcpy(name, input + pointer, name_len);
+            // TODO: bounds checking on whether isotp_link_containers[link_index] is already initalized
+            // TODO: bounds checking on whether link_index > NUM_ISOTP_LINK_CONTAINERS - 1
+            configure_isotp_link(link_index, receive_arbitration_id, reply_arbitration_id, name);
+            // TODO: send ble_command_received successful response
             break;
         }
         default: {

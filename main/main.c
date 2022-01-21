@@ -88,10 +88,12 @@ void app_main(void)
     // CAN/TWAI driver
     ESP_ERROR_CHECK(twai_start());
     ESP_LOGI(MAIN_TAG, "CAN/TWAI Driver started");
-    // ISO-TP handler + tasks
-    configure_isotp_links();
-    ESP_LOGI(MAIN_TAG, "ISO-TP links configured");
-    xSemaphoreGive(isotp_send_queue_sem);
+    // mark all isotp_link_containers uninitialized by default
+    for (int i = 0; i < NUM_ISOTP_LINK_CONTAINERS; ++i) {
+        IsoTpLinkContainer *isotp_link_container = &isotp_link_containers[i];
+        IsoTpLink *link_ptr = &isotp_link_container->link;
+        link_ptr->initialized = false;
+    }
     // Tasks :
     // "websocket_sendTask" polls the websocket_send_queue queue. This queue is populated when a ISO-TP PDU is received.
     // "TWAI_rx" polls the receive queue (blocking) and once a message exists, forwards it into the ISO-TP library.
@@ -104,6 +106,8 @@ void app_main(void)
     xTaskCreatePinnedToCore(twai_transmit_task, "TWAI_tx", 4096, NULL, TX_TASK_PRIO, NULL, tskNO_AFFINITY);
     xTaskCreatePinnedToCore(isotp_send_queue_task, "ISOTP_process_send_queue", 4096, NULL, MAIN_TSK_PRIO, NULL, tskNO_AFFINITY);
     ESP_LOGI(MAIN_TAG, "Tasks started");
+    // unlock isotp_send_queue
+    xSemaphoreGive(isotp_send_queue_sem);
     // lock done_sem
     xSemaphoreTake(done_sem, portMAX_DELAY);
     // uninstall driver

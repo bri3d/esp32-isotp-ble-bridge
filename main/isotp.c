@@ -481,6 +481,7 @@ void isotp_init_link(IsoTpLink *link, uint32_t send_arbitration_id, uint32_t rec
     link->receive_buf_size = recvbufsize;
     link->st_min = 0; // TODO: support changing this
     link->default_block_size = 0x20; // TODO: support changing this
+    link->initialized = true;
     return;
 }
 

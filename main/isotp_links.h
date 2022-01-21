@@ -2,6 +2,7 @@
 #define __ISOTP_LINKS_H__
 
 #include <stdint.h>
+#include <stdbool.h>
 
 /**
  * @brief Struct containing the data for linking an application to a CAN instance.
@@ -31,7 +32,6 @@ typedef struct IsoTpLink {
                                                    end at receive FC */
     int                         send_protocol_result;
     uint8_t                     send_status;
-
     /* receiver paramters */
     uint32_t                    receive_arbitration_id;
     /* message buffer */
@@ -47,10 +47,11 @@ typedef struct IsoTpLink {
                                                      end at receive FC */
     int                         receive_protocol_result;
     uint8_t                     receive_status;
+    /* initialized */
+    bool                        initialized;
 } IsoTpLink;
 
 void configure_isotp_link(int index, uint32_t receive_arbitration_id, uint32_t reply_arbitration_id, const char *name);
-void configure_isotp_links();
 
 #endif
 
