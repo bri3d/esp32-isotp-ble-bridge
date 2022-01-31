@@ -1,6 +1,6 @@
 # ISOTP BLE Bridge
 
-The goal of this project is to build a native Macchina A0 (or ESP32 clone) firmware which can bridge BLE to ISOTP. The A0 is increasingly more difficult to find in stock, an alternative is to purchase the individual dev boards and assemble your own "clone".
+The goal of this project is to build a native Macchina A0 (or ESP32 clone) firmware which can bridge BLE to ISOTP. The A0 has become increasingly more difficult to find in stock as of 2022, an alternative is to purchase the individual dev boards and assemble your own "clone".
 
 Building and installing:
 1) This project is built using the ESP32 native toolchain ESP-IDF (based on FreeRTOS) and can be compiled using `idf.py build`
