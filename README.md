@@ -30,4 +30,6 @@ https://www.amazon.ca/CloverUS-SN65HVD230-Transceiver-Communication-Arduino/dp/B
 Small DC buck converter to 5v <br>
 https://www.amazon.ca/eBoot-MP1584EN-Converter-Adjustable-Module/dp/B01MQGMOKI/ref=sr_1_9?crid=192T7TLTFMKHE&keywords=buck+converter&qid=1643596906&sprefix=buck+converter%2Caps%2C105&sr=8-9 <br> <br>
 OBD2 connector <br>
-https://www.sparkfun.com/products/9911 <br>
+https://www.sparkfun.com/products/9911 <br><br>
+1Amp fast diode<br>
+https://www.amazon.ca/1N5819-Schottky-Barrier-Rectifier-DO-204AL/dp/B07RL3SCL4/ref=mp_s_a_1_5?crid=AX2MPSXQXPUM&keywords=1+amp+schottky+diode&qid=1643646733&sprefix=1amp+schottky+diode%2Caps%2C267&sr=8-5
