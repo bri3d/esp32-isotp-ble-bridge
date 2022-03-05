@@ -6,7 +6,7 @@ https://www.silabs.com/developers/usb-to-uart-bridge-vcp-drivers
 
 Option 1
 ---------
-Download the A0_FW_Install.zip and run Install.bat
+Download the A0_FW_Install.rar and run Install.bat
 
 
 Option 2
