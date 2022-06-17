@@ -12,6 +12,7 @@
 #define BRG_SETTING_BLE_MULTI_DELAY		6
 #define BRG_SETTING_PASSWORD			7
 #define BRG_SETTING_GAP					8
+#define BRG_SETTING_DQ3XX               9
 
 #define TASK_STACK_SIZE					2048
 

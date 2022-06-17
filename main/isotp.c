@@ -311,6 +311,11 @@ void isotp_on_can_message(IsoTpLink *link, uint8_t *data, uint16_t len) {
             ret = isotp_receive_single_frame(link, &message, len);
             
             if (ISOTP_RET_OK == ret) {
+                if(1 == link->dq3xx_hack) { 
+                    if (len > 3 && message.as.single_frame.data[0] == 0x7F && message.as.single_frame.data[1] == 0x31) {
+                        isotp_send_flow_control(link, PCI_FLOW_STATUS_CONTINUE, link->receive_bs_count, link->st_min);
+                    }
+                }
                 /* change status */
                 link->receive_status = ISOTP_RECEIVE_STATUS_FULL;
             }

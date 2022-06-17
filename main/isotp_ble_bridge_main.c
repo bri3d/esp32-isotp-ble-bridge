@@ -370,6 +370,14 @@ bool16 parse_packet(ble_header_t* header, uint8_t* data)
 								ESP_LOGI(BRIDGE_TAG, "Set GAP [%s]", str);
 							}
 							break;
+						case BRG_SETTING_DQ3XX:
+							{
+								IsoTpLinkContainer *isotp_link_container = &isotp_link_containers[1];
+								uint16_t dq3xx = isotp_link_container->link.dq3xx_hack;
+								ESP_LOGI(BRIDGE_TAG, "Sending DQ3XX [%04X] from DSG container", dq3xx);
+								send_packet(0, 0, BLE_COMMAND_FLAG_SETTINGS | BRG_SETTING_DQ3XX, &dq3xx, sizeof(uint16_t));
+							}
+							break;
 					}
 					return true;
 				}
@@ -472,6 +480,16 @@ bool16 parse_packet(ble_header_t* header, uint8_t* data)
 							eeprom_write_str(BLE_GAP_KEY, str);
 							eeprom_commit();
 							xSemaphoreGive(ch_sleep_sem);
+							return true;
+						}
+						break;
+					case BRG_SETTING_DQ3XX:
+						if(header->cmdSize == sizeof(uint16_t))
+						{
+							uint16_t dq3xx = *(uint16_t*)data;
+							IsoTpLinkContainer *isotp_link_container = &isotp_link_containers[1];
+							isotp_link_container->link.dq3xx_hack = dq3xx;
+							ESP_LOGI(BRIDGE_TAG, "Set DQ3XX [%04X] for DSG container", dq3xx);
 							return true;
 						}
 						break;

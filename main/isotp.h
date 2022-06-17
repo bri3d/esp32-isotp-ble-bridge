@@ -60,6 +60,7 @@ typedef struct IsoTpLink {
     int16_t						receive_protocol_result;
 	uint16_t					receive_status;
 	uint16_t				   	stmin_override;
+    uint16_t                    dq3xx_hack; /* Hack for DQ3XX DSGs to return 30 Continue after UDS Wait commands */
 } IsoTpLink;
 
 /**
