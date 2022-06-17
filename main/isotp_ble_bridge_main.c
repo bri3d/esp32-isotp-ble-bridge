@@ -27,12 +27,19 @@
 #define BRIDGE_TAG 					"Bridge"
 
 /* ------------------------ global vars ------------------------------------ */
-ble_header_t 	split_header;
-uint16_t		split_enabled 		= false;
-uint8_t 		split_count 		= 0;
-uint16_t 		split_length 		= 0;
-uint8_t* 		split_data 			= NULL;
-uint8_t			passwordChecked 	= true;
+static SemaphoreHandle_t	isotp_send_task_mutex	= NULL;
+static bool16				isotp_run_tasks			= false;
+static ble_header_t			split_header;
+static uint16_t				split_enabled 			= false;
+static uint8_t 				split_count 			= 0;
+static uint16_t				split_length 			= 0;
+static uint8_t*				split_data 				= NULL;
+#if PASSWORD_CHECK
+static bool16				passwordChecked			= false;
+#else
+static bool16				passwordChecked			= true;
+#endif
+
 
 /* ---------------------------- ISOTP Callbacks ---------------------------- */
 
@@ -40,6 +47,7 @@ int isotp_user_send_can(const uint32_t arbitration_id, const uint8_t* data, cons
     twai_message_t frame = {.identifier = arbitration_id, .data_length_code = size};
     memcpy(frame.data, data, sizeof(frame.data));
 	xQueueSend(can_send_queue, &frame, portMAX_DELAY);
+
     return ISOTP_RET_OK;                           
 }
 
@@ -53,7 +61,7 @@ void isotp_user_debug(const char* message, ...) {
 
 /* --------------------------- Functions --------------------------------- */
 
-bool setCpuFrequencyMhz(uint16_t max, uint16_t min)
+bool16 setCpuFrequencyMhz(uint16_t max, uint16_t min)
 {
 	//set config
 	esp_pm_config_esp32_t cpu_config;
@@ -65,7 +73,7 @@ bool setCpuFrequencyMhz(uint16_t max, uint16_t min)
 	return esp_pm_configure(&cpu_config);
 }
 
-bool check_password(char* data)
+bool16 check_password(char* data)
 {
 	if(data) {
 		char* pass = eeprom_read_str(PASSWORD_KEY);
@@ -110,8 +118,11 @@ static void isotp_processing_task(void *arg)
     IsoTpLink *link_ptr = &isotp_link_container->link;
 	uint8_t *payload_buf = isotp_link_container->payload_buf;
 	uint16_t number = isotp_link_container->number;
-	
-    while (1)
+
+	xSemaphoreTake(isotp_link_container->task_mutex, portMAX_DELAY);
+	ESP_LOGI(BRIDGE_TAG, "Receive task started: %d", number);
+	xSemaphoreGive(sync_task_sem);
+    while (isotp_run_tasks)
     {
         if (link_ptr->send_status != ISOTP_SEND_STATUS_INPROGRESS &&
             link_ptr->receive_status != ISOTP_RECEIVE_STATUS_INPROGRESS)
@@ -150,65 +161,126 @@ static void isotp_processing_task(void *arg)
         }
 		taskYIELD(); // Allow higher priority tasks to run, for example Rx/Tx
     }
+	ESP_LOGI(BRIDGE_TAG, "Receive task stopped: %d", number);
+	xSemaphoreGive(isotp_link_container->task_mutex);
     vTaskDelete(NULL);
 }
 
 static void isotp_send_queue_task(void *arg)
 {
-    while (1)
+	xSemaphoreTake(isotp_send_task_mutex, portMAX_DELAY);
+	ESP_LOGI(BRIDGE_TAG, "Send task started");
+	xSemaphoreGive(sync_task_sem);
+    while (isotp_run_tasks)
     {
-        twai_status_info_t status_info;
-        twai_get_status_info(&status_info);
-        if (status_info.state == TWAI_STATE_BUS_OFF)
-        {
-            twai_initiate_recovery();
-        }
-        else if (status_info.state == TWAI_STATE_STOPPED)
-        {
-            twai_start();
-        }
         send_message_t msg;
-		xQueueReceive(isotp_send_message_queue, &msg, portMAX_DELAY);
-		xSemaphoreTake(isotp_mutex, pdMS_TO_TICKS(TIMEOUT_NORMAL));
-		ESP_LOGI(BRIDGE_TAG, "isotp_send_queue_task: sending message with %d size (rx id: %04x / tx id: %04x)", msg.msg_length, msg.rxID, msg.txID);
-		for(uint16_t i = 0; i < NUM_ISOTP_LINK_CONTAINERS; i++) {
-			IsoTpLinkContainer *isotp_link_container = &isotp_link_containers[i];
-			if(msg.txID == isotp_link_container->link.receive_arbitration_id &&
-				msg.rxID == isotp_link_container->link.send_arbitration_id) {
-				ESP_LOGI(BRIDGE_TAG, "container match [%d]", i);
-				isotp_link_container_id = i;
-				isotp_send(&isotp_link_container->link, msg.buffer, msg.msg_length);
-				xSemaphoreGive(isotp_mutex);
-				xSemaphoreGive(isotp_link_container->wait_for_isotp_data_sem);
-				break;
-            }
+		if (xQueueReceive(isotp_send_message_queue, &msg, portMAX_DELAY) == pdTRUE) {
+			if (isotp_run_tasks) {
+				xSemaphoreTake(isotp_mutex, pdMS_TO_TICKS(TIMEOUT_NORMAL));
+				ESP_LOGI(BRIDGE_TAG, "isotp_send_queue_task: sending message with %d size (rx id: %04x / tx id: %04x)", msg.msg_length, msg.rxID, msg.txID);
+				for (uint16_t i = 0; i < NUM_ISOTP_LINK_CONTAINERS; i++) {
+					IsoTpLinkContainer* isotp_link_container = &isotp_link_containers[i];
+					if (msg.txID == isotp_link_container->link.receive_arbitration_id &&
+						msg.rxID == isotp_link_container->link.send_arbitration_id) {
+						ESP_LOGI(BRIDGE_TAG, "container match [%d]", i);
+						isotp_link_container_id = i;
+						isotp_send(&isotp_link_container->link, msg.buffer, msg.msg_length);
+						xSemaphoreGive(isotp_mutex);
+						xSemaphoreGive(isotp_link_container->wait_for_isotp_data_sem);
+						break;
+					}
+				}
+				free(msg.buffer);
+			}
 		}
-		free(msg.buffer);
 		taskYIELD();
 	}
+	ESP_LOGI(BRIDGE_TAG, "Send task stopped");
+	xSemaphoreGive(isotp_send_task_mutex);
     vTaskDelete(NULL);
 }
 
 /* --------------------------- ISOTP Functions -------------------------------------- */
+void isotp_stop_task()
+{
+	if (isotp_run_tasks) {
+		isotp_run_tasks = false;
+		for (uint16_t i = 0; i < NUM_ISOTP_LINK_CONTAINERS; i++) {
+			IsoTpLinkContainer* isotp_link_container = &isotp_link_containers[i];
+			xSemaphoreGive(isotp_link_container->wait_for_isotp_data_sem);
+			xSemaphoreTake(isotp_link_container->task_mutex, portMAX_DELAY);
+			xSemaphoreGive(isotp_link_container->task_mutex);
+		}
+
+		send_message_t msg;
+		xQueueSend(isotp_send_message_queue, &msg, portMAX_DELAY);
+		xSemaphoreTake(isotp_send_task_mutex, portMAX_DELAY);
+		xSemaphoreGive(isotp_send_task_mutex);
+		ESP_LOGI(BRIDGE_TAG, "Tasks stopped");
+	}
+}
 
 void isotp_start_task()
 {
+	isotp_stop_task();
+
+	isotp_run_tasks = true;
+
+	ESP_LOGI(BRIDGE_TAG, "Tasks starting");
+	xSemaphoreTake(sync_task_sem, 0);
 	// create tasks for each isotp_link
 	for (uint16_t i = 0; i < NUM_ISOTP_LINK_CONTAINERS; i++)
 	{
 		IsoTpLinkContainer* isotp_link_container = &isotp_link_containers[i];
 		xTaskCreate(isotp_processing_task, isotp_link_container->name, TASK_STACK_SIZE, isotp_link_container, ISOTP_TSK_PRIO, NULL);
+		xSemaphoreTake(sync_task_sem, portMAX_DELAY);
 	}
 
 	// "ISOTP_process" pumps the ISOTP library's "poll" method, which will call the send queue callback if a message needs to be sent.
 	// ISOTP_process also polls the ISOTP library's non-blocking receive method, which will produce a message if one is ready.
 	xTaskCreate(isotp_send_queue_task, "ISOTP_process_send_queue", TASK_STACK_SIZE, NULL, MAIN_TSK_PRIO, NULL);
+	xSemaphoreTake(sync_task_sem, portMAX_DELAY);
+	ESP_LOGI(BRIDGE_TAG, "Tasks started");
+}
+
+void isotp_deinit()
+{
+	bool16 didDeinit = false;
+
+	if (isotp_mutex) {
+		vSemaphoreDelete(isotp_mutex);
+		isotp_mutex = NULL;
+		didDeinit = true;
+	}
+
+	if (isotp_send_task_mutex) {
+		vSemaphoreDelete(isotp_send_task_mutex);
+		isotp_send_task_mutex = NULL;
+		didDeinit = true;
+	}
+
+	if (isotp_send_message_queue) {
+		//clear and delete queue
+		send_message_t msg;
+		while (xQueueReceive(isotp_send_message_queue, &msg, 0) == pdTRUE)
+			if (msg.buffer)
+				free(msg.buffer);
+		vQueueDelete(isotp_send_message_queue);
+		isotp_send_message_queue = NULL;
+		didDeinit = true;
+	}
+
+	disable_isotp_links();
+
+	if (didDeinit)
+		ESP_LOGI(BRIDGE_TAG, "Deinit");
 }
 
 void isotp_init()
 {
-	isotp_mutex = xSemaphoreCreateMutex();
-	isotp_send_message_queue = xQueueCreate(ISOTP_QUEUE_SIZE, sizeof(send_message_t));
+	isotp_mutex					= xSemaphoreCreateMutex();
+	isotp_send_task_mutex		= xSemaphoreCreateMutex();
+	isotp_send_message_queue	= xQueueCreate(ISOTP_QUEUE_SIZE, sizeof(send_message_t));
 
 	configure_isotp_links();
 }
@@ -227,7 +299,7 @@ void split_clear()
 	}
 }
 
-bool parse_packet(ble_header_t* header, uint8_t* data)
+bool16 parse_packet(ble_header_t* header, uint8_t* data)
 {
 	if(passwordChecked) {
 		//Is client trying to set a setting?
@@ -406,7 +478,7 @@ bool parse_packet(ble_header_t* header, uint8_t* data)
 				}
 			}
 		} else {
-		persist_take_all_mutex();
+			persist_take_all_mutex();
 			if (persist_enabled()) {
 				//We are in persistent mode
 				//Should we clear the persist messages in memory?
@@ -460,7 +532,9 @@ bool parse_packet(ble_header_t* header, uint8_t* data)
 					if (msg.buffer) {
 						memcpy(msg.buffer, data, header->cmdSize);
 
-						xQueueSend(isotp_send_message_queue, &msg, pdMS_TO_TICKS(TIMEOUT_NORMAL));
+						if (xQueueSend(isotp_send_message_queue, &msg, pdMS_TO_TICKS(TIMEOUT_NORMAL)) != pdTRUE) {
+							free(msg.buffer);
+						}
 					}
 					else {
 						ESP_LOGD(BRIDGE_TAG, "parse_packet: malloc fail size(%d)", header->cmdSize);
@@ -623,27 +697,42 @@ void uart_data_received(const void* src, size_t size)
 
 /* ----------- BLE/UART callbacks ---------------- */
 
-void bridge_connect() {
+void bridge_connect() 
+{
+	//clear persist
+	persist_take_all_mutex();
+	persist_clear();
+	persist_give_all_mutex();
+
 	//set to green
 	led_setcolor(LED_GREEN_QRT);
 
 	//set full speed
 	setCpuFrequencyMhz(240, 40);
 
+#if PASSWORD_CHECK
 	//disable password support
-	passwordChecked = true;
+	passwordChecked = false;
+#endif
 }
 
 void bridge_disconnect()
 {
+	//clear persist
+	persist_take_all_mutex();
+	persist_clear();
+	persist_give_all_mutex();
+
 	//set led to low red
 	led_setcolor(LED_RED_EHT);
 
 	//set slow speed
 	setCpuFrequencyMhz(80, 10);
 
+#if PASSWORD_CHECK
 	//disable password support
-	passwordChecked = true;
+	passwordChecked = false;
+#endif
 }
 
 void ch_on_uart_connect()
@@ -673,6 +762,8 @@ void app_main(void)
 	//set slow speed
 	setCpuFrequencyMhz(80, 10);
 
+	sync_task_sem = xSemaphoreCreateBinary();
+
 	//start eeprom and read values
 	eeprom_init();
 	char* gapName = eeprom_read_str(BLE_GAP_KEY);
@@ -681,7 +772,7 @@ void app_main(void)
 		free(gapName);
 	}
 
-	// Setup BLE server
+	//setup BLE server
     ble_server_callbacks callbacks = {
 		.data_received = received_from_ble,
 		.notifications_subscribed = ble_notifications_enabled,
@@ -689,7 +780,7 @@ void app_main(void)
     };
 	ble_server_setup(callbacks);
 
-	//Init
+	//init
 	ch_init();
 	led_init();
 	uart_init();
@@ -704,8 +795,26 @@ void app_main(void)
 	uart_start_task();
 	ch_start_task();
 
-	//Wait for sleep command
+	//wait for sleep command
 	xSemaphoreTake(ch_sleep_sem, portMAX_DELAY);
+
+	//stop tasks
+	ch_stop_task();
+	uart_stop_task();
+	persist_stop_task();
+	isotp_stop_task();
+	twai_stop_task();
+
+	//deinit
+	persist_deinit();
+	isotp_deinit();
+	twai_deinit();
+	uart_deinit();
+	led_deinit();
+	ch_deinit();
+	ble_server_shutdown();
+
+	vSemaphoreDelete(sync_task_sem);
 
 	//setup sleep timer
 	esp_sleep_enable_timer_wakeup(SLEEP_TIME * US_TO_S);

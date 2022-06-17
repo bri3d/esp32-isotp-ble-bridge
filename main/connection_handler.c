@@ -2,6 +2,7 @@
 #include "freertos/task.h"
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
+#include "driver/twai.h"
 #include "esp_log.h"
 #include "isotp.h"
 #include "mutexes.h"
@@ -10,35 +11,90 @@
 #include "connection_handler.h"
 #include "ble_server.h"
 #include "uart.h"
+#include "twai.h"
 
 #define CH_TAG 			"Connection_handler"
 
-RTC_DATA_ATTR 	uint32_t first_sleep_timer	= TIMEOUT_FIRSTBOOT;
-uint32_t 		uart_connection_timer 		= 0;
-uint32_t 		uart_packet_timer			= 0;
-uint32_t		can_connection_timer		= 0;
+static SemaphoreHandle_t		ch_task_mutex				= NULL;
+static bool16					run_ch_task					= false;
+static RTC_DATA_ATTR uint32_t	first_sleep_timer			= TIMEOUT_FIRSTBOOT;
+static uint32_t 				uart_connection_timer 		= 0;
+static uint32_t 				uart_packet_timer			= 0;
+static uint32_t					can_connection_timer		= 0;
 
 void ch_task(void *arg);
 
 void ch_init()
 {
-	ch_uart_mutex = xSemaphoreCreateMutex();
-	ch_uart_packet_timer_sem = xSemaphoreCreateBinary();
-	ch_can_timer_sem = xSemaphoreCreateBinary();
-	ch_sleep_sem = xSemaphoreCreateBinary();
+	ch_deinit();
+
+	ch_uart_mutex				= xSemaphoreCreateMutex();
+	ch_uart_packet_timer_sem	= xSemaphoreCreateBinary();
+	ch_can_timer_sem			= xSemaphoreCreateBinary();
+	ch_sleep_sem				= xSemaphoreCreateBinary();
+	ch_task_mutex				= xSemaphoreCreateMutex();
+
+	ESP_LOGI(CH_TAG, "Init");
 }
 
 void ch_deinit()
 {
-	vSemaphoreDelete(ch_uart_mutex);
-	vSemaphoreDelete(ch_uart_packet_timer_sem);
-	vSemaphoreDelete(ch_can_timer_sem);
-	vSemaphoreDelete(ch_sleep_sem);
+	bool16 didDeInit = false;
+
+	if (ch_uart_mutex) {
+		vSemaphoreDelete(ch_uart_mutex);
+		ch_uart_mutex = NULL;
+		didDeInit = true;
+	}
+
+	if (ch_uart_packet_timer_sem) {
+		vSemaphoreDelete(ch_uart_packet_timer_sem);
+		ch_uart_packet_timer_sem = NULL;
+		didDeInit = true;
+	}
+
+	if (ch_can_timer_sem) {
+		vSemaphoreDelete(ch_can_timer_sem);
+		ch_can_timer_sem = NULL;
+		didDeInit = true;
+	}
+	
+
+	if (ch_sleep_sem) {
+		vSemaphoreDelete(ch_sleep_sem);
+		ch_sleep_sem = NULL;
+		didDeInit = true;
+	}
+	
+	if (ch_task_mutex) {
+		vSemaphoreDelete(ch_task_mutex);
+		ch_task_mutex = NULL;
+		didDeInit = true;
+	}
+	
+	if (didDeInit)
+		ESP_LOGI(CH_TAG, "Deinit");
 }
 
 void ch_start_task()
 {
-	xTaskCreate(ch_task, "Connection_handling_process", TASK_STACK_SIZE_SMALL, NULL, HANDLER_TSK_PRIO, NULL);
+	ch_stop_task();
+
+	run_ch_task = true;
+	ESP_LOGI(CH_TAG, "Task starting");
+	xSemaphoreTake(sync_task_sem, 0);
+	xTaskCreate(ch_task, "Connection_handling_process", TASK_STACK_SIZE, NULL, HANDLER_TSK_PRIO, NULL);
+	xSemaphoreTake(sync_task_sem, portMAX_DELAY);
+}
+
+void ch_stop_task()
+{
+	if (run_ch_task) {
+		run_ch_task = false;
+		xSemaphoreTake(ch_task_mutex, portMAX_DELAY);
+		xSemaphoreGive(ch_task_mutex);
+		ESP_LOGI(CH_TAG, "Task stopped");
+	}
 }
 
 void ch_reset_uart_timer()
@@ -52,12 +108,12 @@ void ch_reset_uart_timer()
 	xSemaphoreGive(ch_uart_mutex);
 }
 
-bool ch_uart_connected()
+bool16 ch_uart_connected()
 {
 	return uart_connection_timer;
 }
 
-bool ch_uart_connection_countdown()
+bool16 ch_uart_connection_countdown()
 {
 	xSemaphoreTake(ch_uart_mutex, pdMS_TO_TICKS(TIMEOUT_NORMAL));
 	if(uart_connection_timer) {
@@ -73,8 +129,25 @@ bool ch_uart_connection_countdown()
 
 void ch_task(void *arg)
 {
-	while(1)
+	xSemaphoreTake(ch_task_mutex, portMAX_DELAY);
+	xSemaphoreGive(sync_task_sem);
+	ESP_LOGI(CH_TAG, "Task started");
+	while(run_ch_task)
 	{
+		//check TWAI state
+		twai_status_info_t status_info;
+		twai_get_status_info(&status_info);
+		if (status_info.state == TWAI_STATE_BUS_OFF)
+		{
+			ESP_LOGI(CH_TAG, "TWAI is off initiating recovery");
+			twai_initiate_recovery();
+		}
+		else if (status_info.state == TWAI_STATE_STOPPED)
+		{
+			ESP_LOGI(CH_TAG, "TWAI is off starting");
+			twai_start();
+		}
+
 		//count down our first boot timer
 		if(first_sleep_timer) {
 			first_sleep_timer--;
@@ -85,9 +158,10 @@ void ch_task(void *arg)
 			if (can_connection_timer) {
 				can_connection_timer--;
 			}
-
+#if ALLOW_SLEEP == TRUE
 			if(!can_connection_timer)
 				xSemaphoreGive(ch_sleep_sem);
+#endif
 		} else {
 			can_connection_timer = TIMEOUT_CANCONNECTION;
 		}
@@ -112,5 +186,7 @@ void ch_task(void *arg)
 
 		vTaskDelay(pdMS_TO_TICKS(1000));
 	}
+	ESP_LOGI(CH_TAG, "Task stopping");
+	xSemaphoreGive(ch_task_mutex);
     vTaskDelete(NULL);
 }

@@ -14,7 +14,6 @@
 #define BRG_SETTING_GAP					8
 
 #define TASK_STACK_SIZE					2048
-#define TASK_STACK_SIZE_SMALL			1024
 
 #define RX_TASK_PRIO 			 		3 // Ensure we drain the RX queue as quickly as we reasonably can to prevent overflow and ensure the message pump has fresh data.
 #define TX_TASK_PRIO 			 		3 // Ensure we TX messages as quickly as we reasonably can to meet ISO15765-2 timing constraints
@@ -41,9 +40,11 @@
 #define TIMEOUT_UARTCONNECTION			120
 #define TIMEOUT_UARTPACKET				1
 
+#define ALLOW_SLEEP						FALSE
 #define SLEEP_TIME						10
 #define US_TO_S							1000000
 
+#define PASSWORD_CHECK					FALSE
 #define MAX_PASSWORD_LENGTH				64
 #define PASSWORD_KEY					"Password"
 #define PASSWORD_DEFAULT			   	"BLE2"
@@ -66,7 +67,7 @@
 #define UART_RTS 						UART_PIN_NO_CHANGE
 #define UART_CTS 						UART_PIN_NO_CHANGE
 #define UART_PORT_NUM      				UART_NUM_0
-#define UART_BAUD_RATE     				250000
+#define UART_BAUD_RATE     				250000 //115200
 #define UART_BUFFER_SIZE				8192
 #define UART_INTERNAL_BUFFER_SIZE		2048
 #define UART_ECHO						0
@@ -75,5 +76,7 @@
 #define PERSIST_MAX_MESSAGE				64
 #define PERSIST_DEFAULT_MESSAGE_DELAY	20
 #define PERSIST_DEFAULT_QUEUE_DELAY		10
+
+typedef int16_t							bool16;
 
 #endif

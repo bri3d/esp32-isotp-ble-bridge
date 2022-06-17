@@ -57,24 +57,24 @@ static uint8_t spp_adv_data[23] = {
     0x0F,0x09, 'B', 'L', 'E', '_', 'T', 'O', '_', 'I', 'S', 'O', 'T','P', '2', '0'
 };
 
-static char ble_gap_name[MAX_GAP_LENGTH+1]		= DEFAULT_GAP_NAME;
-static uint16_t ble_delay_send 					= DEFAULT_DELAY_SEND;
-static uint16_t ble_delay_multi					= DEFAULT_DELAY_MULTI;
-static bool kill_ble_tasks 						= false;
+static char                 ble_gap_name[MAX_GAP_LENGTH+1]  = DEFAULT_GAP_NAME;
+static uint16_t             ble_delay_send                  = DEFAULT_DELAY_SEND;
+static uint16_t             ble_delay_multi				    = DEFAULT_DELAY_MULTI;
+static bool16               ble_run_tasks                   = false;
 static ble_server_callbacks server_callbacks;
 
-static uint16_t spp_mtu_size 					= DEFAULT_MTU_SIZE;
-static uint16_t spp_conn_id 					= 0xffff;
-static esp_gatt_if_t spp_gatts_if 				= 0xff;
-static QueueHandle_t spp_send_queue 			= NULL;
-static QueueHandle_t cmd_cmd_queue 				= NULL;
-static SemaphoreHandle_t ble_congested			= NULL;
+static uint16_t             spp_mtu_size 					= DEFAULT_MTU_SIZE;
+static uint16_t             spp_conn_id 					= 0xffff;
+static esp_gatt_if_t        spp_gatts_if 				    = 0xff;
+static QueueHandle_t        spp_send_queue 			        = NULL;
+static SemaphoreHandle_t    ble_congested			        = NULL;
+static SemaphoreHandle_t    ble_task_mutex                  = NULL;
 
-static bool enable_data_ntf 					= false;
-static bool is_connected 						= false;
-static esp_bd_addr_t spp_remote_bda 			= {0x0,};
+static bool16               enable_data_ntf 			    = false;
+static bool16               is_connected 				    = false;
+static esp_bd_addr_t        spp_remote_bda                  = {0x0,};
 
-static uint16_t spp_handle_table[SPP_IDX_NB];
+static uint16_t             spp_handle_table[SPP_IDX_NB];
 
 static esp_ble_adv_params_t spp_adv_params = {
     .adv_int_min        = 0x20,
@@ -234,7 +234,7 @@ static uint8_t find_char_and_desr_index(uint16_t handle)
     return error;
 }
 
-static bool store_wr_buffer(esp_ble_gatts_cb_param_t *p_data)
+static bool16 store_wr_buffer(esp_ble_gatts_cb_param_t *p_data)
 {
     temp_spp_recv_data_node_p1 = (spp_receive_data_node_t *)malloc(sizeof(spp_receive_data_node_t));
 
@@ -307,177 +307,146 @@ static void send_buffered_message(void)
 
 void send_task(void *pvParameters)
 {
+    xSemaphoreTake(ble_task_mutex, portMAX_DELAY);
 	send_message_t event;
+	while(ble_run_tasks) {
+        if (xQueueReceive(spp_send_queue, &event, portMAX_DELAY) == pdTRUE) {
+            //Are we shutting down?
+            if (ble_run_tasks) {
+                //If not continue
+                ESP_LOGI(BLE_TAG, "Sending message [%08X]", event.msg_length);
+                if (event.msg_length) {
+                    //Is GATT setup and ready to notify?
+                    if (!enable_data_ntf) {
+                        ESP_LOGI(BLE_TAG, "%s notifications not enabled, message deleted", __func__);
+                        free(event.buffer);
+                    }
+                    else
+                    {  	//Connected and notifications are enabled check for congestion
+                        xSemaphoreTake(ble_congested, pdMS_TO_TICKS(BLE_CONGESTION_MAX));
+                        xSemaphoreGive(ble_congested);
 
-	while(1) {
-		if(xQueueReceive(spp_send_queue, (void * )&event, (TickType_t)portMAX_DELAY)) {
-			//Are we shutting down?
-			if(kill_ble_tasks) {
-				free(event.buffer);
-				while(xQueueReceive(spp_send_queue, (void * )&event, 0))
-					free(event.buffer);
-				break;
-			}
+                        uint32_t dataLength = event.msg_length + sizeof(ble_header_t);
+                        uint8_t* data = (uint8_t*)malloc(sizeof(uint8_t) * dataLength);
+                        if (data == NULL) {
+                            ESP_LOGE(BLE_TAG, "%s malloc.1 failed", __func__);
+                            free(event.buffer);
+                            break;
+                        }
+                        memset(data, 0x0, dataLength);
+                        memcpy(data + sizeof(ble_header_t), event.buffer, event.msg_length);
+                        free(event.buffer);
 
-			//If not continue
-			ESP_LOGI(BLE_TAG, "Sending message [%08X]", event.msg_length);
-			if(event.msg_length) {
-				//Is GATT setup and ready to notify?
-				if(!enable_data_ntf){
-					ESP_LOGI(BLE_TAG, "%s notifications not enabled, message deleted", __func__);
-					free(event.buffer);
-				} else
-				{  	//Connected and notifications are enabled check for congestion
-					xSemaphoreTake(ble_congested, pdMS_TO_TICKS(BLE_CONGESTION_MAX));
-					xSemaphoreGive(ble_congested);
+                        //Build header
+                        ble_header_t* header = (ble_header_t*)data;
+                        header->hdID = BLE_HEADER_ID;
+                        header->cmdSize = event.msg_length;
+                        header->rxID = event.rxID;
+                        header->txID = event.txID;
 
-                    uint32_t dataLength = event.msg_length + sizeof(ble_header_t);
-					uint8_t* data = (uint8_t *)malloc(sizeof(uint8_t)*dataLength);
-					if(data == NULL){
-						ESP_LOGE(BLE_TAG, "%s malloc.1 failed", __func__);
-						free(event.buffer);
-						break;
-					}
-					memset(data, 0x0, dataLength);
-					memcpy(data + sizeof(ble_header_t), event.buffer, event.msg_length);
-					free(event.buffer);
+                        //Can we add more?
+                        while (dataLength < (spp_mtu_size - 3 - sizeof(ble_header_t)))
+                        {
+                            //Do we have any other responses ready to send?
+                            send_message_t nextEvent;
+                            if (xQueuePeek(spp_send_queue, (void*)&nextEvent, ble_delay_multi)) {
+                                //If we add this to the packet are we oversize?
+                                if (nextEvent.msg_length + sizeof(ble_header_t) + dataLength <= (spp_mtu_size - 3)) {
+                                    //We are good, add it but first remove it from the Queue
+                                    if (xQueueReceive(spp_send_queue, &nextEvent, 0) == pdTRUE) {
+                                        uint32_t nextDataLength = dataLength + nextEvent.msg_length + sizeof(ble_header_t);
+                                        uint8_t* nextData = (uint8_t*)malloc(sizeof(uint8_t) * nextDataLength);
+                                        if (nextData == NULL) {
+                                            ESP_LOGE(BLE_TAG, "%s malloc.1 failed", __func__);
+                                            free(nextEvent.buffer);
+                                            break;
+                                        }
+                                        //Copy old data and newEvent buffer into newData
+                                        memset(nextData, 0x0, nextDataLength);
+                                        memcpy(nextData, data, dataLength);
+                                        memcpy(nextData + dataLength + sizeof(ble_header_t), nextEvent.buffer, nextEvent.msg_length);
+                                        free(nextEvent.buffer);
 
-					//Build header
-					ble_header_t* header = (ble_header_t*)data;
-					header->hdID = BLE_HEADER_ID;
-					header->cmdSize = event.msg_length;
-					header->rxID = event.rxID;
-					header->txID = event.txID;
+                                        //Build new header
+                                        ble_header_t* header = (ble_header_t*)(nextData + dataLength);
+                                        header->hdID = BLE_HEADER_ID;
+                                        header->cmdSize = nextEvent.msg_length;
+                                        header->rxID = nextEvent.rxID;
+                                        header->txID = nextEvent.txID;
 
-					//Can we add more?
-					while(dataLength < (spp_mtu_size - 3 - sizeof(ble_header_t)))
-					{
-						//Do we have any other responses ready to send?
-						send_message_t nextEvent;
-						if(xQueuePeek(spp_send_queue, (void * )&nextEvent, ble_delay_multi)) {
-							//If we add this to the packet are we oversize?
-							if(nextEvent.msg_length + sizeof(ble_header_t) + dataLength <= (spp_mtu_size - 3)) {
-								//We are good, add it but first remove it from the Queue
-								if(xQueueReceive(spp_send_queue, (void * )&nextEvent, 0)) {
-									uint32_t nextDataLength = dataLength + nextEvent.msg_length + sizeof(ble_header_t);
-									uint8_t* nextData = (uint8_t *)malloc(sizeof(uint8_t)*nextDataLength);
-									if(nextData == NULL){
-										ESP_LOGE(BLE_TAG, "%s malloc.1 failed", __func__);
-										free(nextEvent.buffer);
-										break;
-									}
-									//Copy old data and newEvent buffer into newData
-									memset(nextData, 0x0, nextDataLength);
-									memcpy(nextData, data, dataLength);
-									memcpy(nextData + dataLength + sizeof(ble_header_t), nextEvent.buffer, nextEvent.msg_length);
-									free(nextEvent.buffer);
+                                        //free old data and replace with new
+                                        free(data);
+                                        data = nextData;
+                                        dataLength = nextDataLength;
 
-									//Build new header
-									ble_header_t* header = (ble_header_t*)(nextData + dataLength);
-									header->hdID = BLE_HEADER_ID;
-									header->cmdSize = nextEvent.msg_length;
-									header->rxID = nextEvent.rxID;
-									header->txID = nextEvent.txID;
+                                        ESP_LOGI(BLE_TAG, "-Multisend Packet [%08X]-", nextEvent.msg_length);
+                                    }
+                                    else {
+                                        //This shouldn't happen?
+                                        break;
+                                    }
+                                }
+                                else {
+                                    //Oversized dont add
+                                    break;
+                                }
+                            }
+                            else {
+                                //Nothing waiting in Queue
+                                break;
+                            }
+                        }
 
-									//free old data and replace with new
-									free(data);
-									data = nextData;
-									dataLength = nextDataLength;
+                        //If payload is larger than MTU cut it up, this should only happen if its a single payload (multisend should not exceed mtu size)
+                        if (dataLength <= (spp_mtu_size - 3)) {
+                            esp_ble_gatts_send_indicate(spp_gatts_if, spp_conn_id, spp_handle_table[SPP_IDX_SPP_DATA_NTY_VAL], dataLength, data, false);
+                        }
+                        else {
+                            //determine packet size for split packets
+                            uint16_t pack_size = spp_mtu_size - 3;
 
-									ESP_LOGI(BLE_TAG, "-Multisend Packet [%08X]-", nextEvent.msg_length);
-								} else {
-									//This shouldn't happen?
-									break;
-								}
-							} else {
-								//Oversized dont add
-								break;
-							}
-						} else {
-							//Nothing waiting in Queue
-							break;
-						}
-					}
+                            //allocate space for payload chunk
+                            uint8_t* data_chunk = (uint8_t*)malloc(pack_size * sizeof(uint8_t));
+                            if (data_chunk == NULL) {
+                                ESP_LOGE(BLE_TAG, "%s malloc.2 failed", __func__);
+                                free(data);
+                                break;
+                            }
 
-					//If payload is larger than MTU cut it up, this should only happen if its a single payload (multisend should not exceed mtu size)
-					if(dataLength <= (spp_mtu_size - 3)) {
-						esp_ble_gatts_send_indicate(spp_gatts_if, spp_conn_id, spp_handle_table[SPP_IDX_SPP_DATA_NTY_VAL], dataLength, data, false);
-					} else {
-						//determine packet size for split packets
-						uint16_t pack_size = spp_mtu_size - 3;
+                            //First chunk
+                            uint16_t data_pos = pack_size;
+                            memcpy(data_chunk, data, pack_size);
+                            data_chunk[1] |= BLE_COMMAND_FLAG_SPLIT_PK;
+                            esp_ble_gatts_send_indicate(spp_gatts_if, spp_conn_id, spp_handle_table[SPP_IDX_SPP_DATA_NTY_VAL], pack_size, data_chunk, false);
+                            vTaskDelay(ble_delay_send);
 
-						//allocate space for payload chunk
-						uint8_t* data_chunk = (uint8_t *)malloc(pack_size*sizeof(uint8_t));
-						if(data_chunk == NULL){
-							ESP_LOGE(BLE_TAG, "%s malloc.2 failed", __func__);
-							free(data);
-							break;
-						}
+                            //send the chunks
+                            uint8_t chunk_num = 1;
+                            while (data_pos < dataLength)
+                            {
+                                //constrain data len
+                                uint16_t data_len = dataLength - data_pos;
+                                if (data_len > pack_size - 2)
+                                    data_len = pack_size - 2;
 
-						//First chunk
-						uint16_t data_pos = pack_size;
-						memcpy(data_chunk, data, pack_size);
-						data_chunk[1] |= BLE_COMMAND_FLAG_SPLIT_PK;
-						esp_ble_gatts_send_indicate(spp_gatts_if, spp_conn_id, spp_handle_table[SPP_IDX_SPP_DATA_NTY_VAL], pack_size, data_chunk, false);
-						vTaskDelay(ble_delay_send);
-
-						//send the chunks
-						uint8_t chunk_num = 1;
-						while(data_pos < dataLength)
-						{
-							//constrain data len
-							uint16_t data_len = dataLength - data_pos;
-							if(data_len > pack_size - 2)
-								data_len = pack_size - 2;
-
-							data_chunk[0] = BLE_PARTIAL_ID;
-							data_chunk[1] = chunk_num++;
-							memcpy(data_chunk + 2, data + data_pos, data_len);
-							data_pos += data_len;
-							esp_ble_gatts_send_indicate(spp_gatts_if, spp_conn_id, spp_handle_table[SPP_IDX_SPP_DATA_NTY_VAL], data_len + 2, data_chunk, false);
-						}
-						free(data_chunk);
-					}
-					free(data);
-					vTaskDelay(ble_delay_send);
-				}
-			}
-		}
+                                data_chunk[0] = BLE_PARTIAL_ID;
+                                data_chunk[1] = chunk_num++;
+                                memcpy(data_chunk + 2, data + data_pos, data_len);
+                                data_pos += data_len;
+                                esp_ble_gatts_send_indicate(spp_gatts_if, spp_conn_id, spp_handle_table[SPP_IDX_SPP_DATA_NTY_VAL], data_len + 2, data_chunk, false);
+                            }
+                            free(data_chunk);
+                        }
+                        free(data);
+                        vTaskDelay(ble_delay_send);
+                    }
+                }
+            }
+        }
 		taskYIELD();
     }
+    xSemaphoreGive(ble_task_mutex);
 	vTaskDelete(NULL);
-}
-
-void spp_cmd_task(void * arg)
-{
-    uint8_t * cmd_id;
-
-	while(1){
-		if(xQueueReceive(cmd_cmd_queue, &cmd_id, portMAX_DELAY)) {
-			//Are we shutting down?
-			if(kill_ble_tasks) {
-				free(cmd_id);
-				while(xQueueReceive(cmd_cmd_queue, &cmd_id, 0))
-					free(cmd_id);
-
-				break;
-			}
-
-			//Nope continue
-			esp_log_buffer_char(BLE_TAG,(char *)(cmd_id),strlen((char *)cmd_id));
-			free(cmd_id);
-		}
-		taskYIELD();
-    }
-    vTaskDelete(NULL);
-}
-
-static void spp_task_init(void)
-{
-	spp_send_queue = xQueueCreate(BLE_QUEUE_SIZE, sizeof(send_message_t));
-	xTaskCreate(send_task, "BLE_sendTask", BLE_STACK_SIZE, NULL, BLE_TASK_PRIORITY, NULL);
-	cmd_cmd_queue = xQueueCreate(BLE_QUEUE_SIZE, sizeof(uint32_t));
-	xTaskCreate(spp_cmd_task, "spp_cmd_task", BLE_STACK_SIZE, NULL, BLE_TASK_PRIORITY, NULL);
 }
 
 static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param)
@@ -528,15 +497,7 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
             if(p_data->write.is_prep == false){
 				ESP_LOGI(BLE_TAG, "ESP_GATTS_WRITE_EVT : handle = %d", res);
                 if(res == SPP_IDX_SPP_COMMAND_VAL){
-                    uint8_t * spp_cmd_buff = NULL;
-                    spp_cmd_buff = (uint8_t *)malloc((spp_mtu_size - 3) * sizeof(uint8_t));
-                    if(spp_cmd_buff == NULL){
-						ESP_LOGE(BLE_TAG, "%s malloc failed", __func__);
-                        break;
-                    }
-                    memset(spp_cmd_buff,0x0,(spp_mtu_size - 3));
-                    memcpy(spp_cmd_buff,p_data->write.value,p_data->write.len);
-					xQueueSend(cmd_cmd_queue,&spp_cmd_buff,10/portTICK_PERIOD_MS);
+                    //do nothing on spp commands
                 }else if(res == SPP_IDX_SPP_DATA_NTF_CFG){
                     if((p_data->write.len == 2)&&(p_data->write.value[0] == 0x01)&&(p_data->write.value[1] == 0x00)){
                         enable_notification();
@@ -654,13 +615,15 @@ static void gatts_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_
 
 void ble_server_setup(ble_server_callbacks callbacks)
 {
-	kill_ble_tasks = false;
-	ble_congested = xSemaphoreCreateBinary();
+    ble_server_shutdown();
+
+    ESP_LOGE(BLE_TAG, "Server starting");
 
     server_callbacks = callbacks;
     esp_err_t ret;
     esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
 
+    ESP_LOGE(BLE_TAG, "Server starting1");
     ESP_ERROR_CHECK(esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT));
 
     ret = esp_bt_controller_init(&bt_cfg);
@@ -691,32 +654,43 @@ void ble_server_setup(ble_server_callbacks callbacks)
     esp_ble_gap_register_callback(gap_event_handler);
     esp_ble_gatts_app_register(ESP_SPP_APP_ID);
 
-	spp_task_init();
+    ble_run_tasks   = true;
+    ble_congested   = xSemaphoreCreateBinary();
+    ble_task_mutex  = xSemaphoreCreateMutex();
+    spp_send_queue  = xQueueCreate(BLE_QUEUE_SIZE, sizeof(send_message_t));
+    xTaskCreate(send_task, "BLE_sendTask", BLE_STACK_SIZE, NULL, BLE_TASK_PRIORITY, NULL);
 
-	return;
+    ESP_LOGE(BLE_TAG, "Server setup successful");
 }
 
 void ble_server_shutdown()
 {
-	//set kill flag
-	kill_ble_tasks = true;
+    if (ble_run_tasks) {
+        ESP_LOGE(BLE_TAG, "Server shutting down");
 
-	//with kill flag set we need to send a message to activate the task
-	send_message_t msg;
-	msg.buffer = malloc(1);
-	msg.msg_length = 10;
-	xQueueSend(spp_send_queue, &msg, 50 / portTICK_PERIOD_MS);
+        //set kill flag
+        ble_run_tasks = false;
 
-	//with kill flag set we need to send a message to activate the task
-	uint8_t* spp_cmd_buff = malloc(1);
-	xQueueSend(cmd_cmd_queue,&spp_cmd_buff,10/portTICK_PERIOD_MS);
+        //with kill flag set we need to send a message to activate the task
+        send_message_t msg;
+        xQueueSend(spp_send_queue, &msg, portMAX_DELAY);
+        xSemaphoreTake(ble_task_mutex, portMAX_DELAY);
+        xSemaphoreGive(ble_task_mutex);
+        vSemaphoreDelete(ble_task_mutex);
+        vSemaphoreDelete(ble_congested);
 
-	//shutdown BLE
-	esp_bluedroid_disable();
-	esp_bluedroid_deinit();
+        //clear and delete queue
+        while (xQueueReceive(spp_send_queue, &msg, 0) == pdTRUE)
+            if(msg.buffer)
+                free(msg.buffer);
+        vQueueDelete(spp_send_queue);
 
-	//delete our congestion semaphore
-	vSemaphoreDelete(ble_congested);
+        //shutdown BLE
+        esp_bluedroid_disable();
+        esp_bluedroid_deinit();
+
+        ESP_LOGE(BLE_TAG, "Server shutdown successful");
+    }
 }
 
 void ble_send(uint32_t txID, uint32_t rxID, uint8_t flags, const void* src, size_t size)
@@ -728,10 +702,12 @@ void ble_send(uint32_t txID, uint32_t rxID, uint8_t flags, const void* src, size
 	msg.txID = txID;
 	msg.flags = flags;
 	memcpy(msg.buffer, src, size);
-	xQueueSend(spp_send_queue, &msg, 50 / portTICK_PERIOD_MS);
+    if (xQueueSend(spp_send_queue, &msg, pdMS_TO_TICKS(TIMEOUT_NORMAL)) != pdTRUE) {
+        free(msg.buffer);
+    }
 }
 
-bool ble_connected()
+bool16 ble_connected()
 {
 	return is_connected;
 }
@@ -766,7 +742,7 @@ uint16_t ble_get_delay_multi()
 	return ble_delay_multi;
 }
 
-bool ble_set_gap_name(char* name, bool set)
+bool16 ble_set_gap_name(char* name, bool16 set)
 {
 	if(name)
 	{
@@ -788,7 +764,7 @@ bool ble_set_gap_name(char* name, bool set)
 	return false;
 }
 
-bool ble_get_gap_name(char* name)
+bool16 ble_get_gap_name(char* name)
 {
 	if(name)
 	{

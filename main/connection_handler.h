@@ -4,8 +4,9 @@
 void 		ch_init();
 void 		ch_deinit();
 void 		ch_start_task();
+void		ch_stop_task();
 void		ch_reset_uart_timer();
-bool 		ch_uart_connected();
+bool16		ch_uart_connected();
 
 void 		ch_on_uart_connect();
 void 		ch_on_uart_disconnect();

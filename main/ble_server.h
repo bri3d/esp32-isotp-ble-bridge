@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "constants.h"
 
 /*
  * DEFINES
@@ -14,7 +15,6 @@
 #define MAX_GAP_LENGTH					14
 #define DEFAULT_GAP_NAME          		"BLE_TO_ISOTP20"
 
-
 //BLE command flags
 #define BLE_COMMAND_FLAG_PER_ENABLE		1
 #define BLE_COMMAND_FLAG_PER_CLEAR		2
@@ -22,7 +22,6 @@
 #define BLE_COMMAND_FLAG_SPLIT_PK		8
 #define BLE_COMMAND_FLAG_SETTINGS_GET	64
 #define BLE_COMMAND_FLAG_SETTINGS		128
-
 
 //BLE send queue size
 #define BLE_QUEUE_SIZE					64
@@ -58,7 +57,7 @@ enum{
     SPP_IDX_NB,
 };
 
-typedef struct send_message{
+typedef struct send_message {
 	int32_t msg_length;
 	uint8_t* buffer;
 	uint16_t rxID;
@@ -82,17 +81,17 @@ typedef struct
     void (*notifications_unsubscribed)();
 } ble_server_callbacks;
 
-void ble_server_setup(ble_server_callbacks callbacks);
-void ble_server_shutdown();
-void ble_send(uint32_t txID, uint32_t rxID, uint8_t flags, const void* src, size_t size);
-bool ble_connected();
-uint16_t ble_queue_spaces();
-uint16_t ble_queue_waiting();
-void ble_set_delay_send(uint16_t delay);
-void ble_set_delay_multi(uint16_t delay);
-uint16_t ble_get_delay_send();
-uint16_t ble_get_delay_multi();
-bool ble_set_gap_name(char* name, bool set);
-bool ble_get_gap_name(char* name);
-void ble_stop_advertising();
-void ble_start_advertising();
+void        ble_server_setup(ble_server_callbacks callbacks);
+void        ble_server_shutdown();
+void        ble_send(uint32_t txID, uint32_t rxID, uint8_t flags, const void* src, size_t size);
+bool16      ble_connected();
+uint16_t    ble_queue_spaces();
+uint16_t    ble_queue_waiting();
+void        ble_set_delay_send(uint16_t delay);
+void        ble_set_delay_multi(uint16_t delay);
+uint16_t    ble_get_delay_send();
+uint16_t    ble_get_delay_multi();
+bool16      ble_set_gap_name(char* name, bool16 set);
+bool16      ble_get_gap_name(char* name);
+void        ble_stop_advertising();
+void        ble_start_advertising();

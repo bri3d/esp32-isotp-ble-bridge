@@ -4,6 +4,7 @@
 #include "freertos/semphr.h"
 #include "constants.h"
 
+SemaphoreHandle_t sync_task_sem;
 SemaphoreHandle_t ch_can_timer_sem;
 SemaphoreHandle_t ch_uart_mutex;
 SemaphoreHandle_t ch_uart_packet_timer_sem;

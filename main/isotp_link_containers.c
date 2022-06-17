@@ -10,8 +10,12 @@
 #include "isotp_link_containers.h"
 #include "constants.h"
 
+#define LINKS_TAG 		"ISOTP_LINKS"
+
 void configure_isotp_links()
 {
+	disable_isotp_links();
+
     // acquire lock
     xSemaphoreTake(isotp_mutex, pdMS_TO_TICKS(TIMEOUT_LONG));
 	// RX_ID + TX_ID are flipped because this device acts as a "tester" listening for responses from ECUs. the ECU's TX is our RX
@@ -89,15 +93,18 @@ void configure_isotp_links()
 		dtc_isotp_link_container->recv_buf, dtc_isotp_link_container->buffer_size
 	);
 
-	//create semaphores for each link
+	//create semaphores/mutexs for each link
 	for(uint16_t i = 0; i < NUM_ISOTP_LINK_CONTAINERS; i++)
 	{
 		IsoTpLinkContainer *isotp_link_container = &isotp_link_containers[i];
-		isotp_link_container->wait_for_isotp_data_sem = xSemaphoreCreateBinary();
+		isotp_link_container->wait_for_isotp_data_sem	= xSemaphoreCreateBinary();
+		isotp_link_container->task_mutex				= xSemaphoreCreateMutex();
 	}
 
 	//reset default link container id
 	isotp_link_container_id = 0;
+
+	ESP_LOGI(LINKS_TAG, "Init");
 
     // free lock
 	xSemaphoreGive(isotp_mutex);
@@ -105,10 +112,43 @@ void configure_isotp_links()
 
 void disable_isotp_links()
 {
-	//delete semaphores for each link
+	bool16 didDeinit = false;
+
+	//delete semaphores/mutexs for each link
 	for(uint16_t i = 0; i < NUM_ISOTP_LINK_CONTAINERS; i++)
 	{
 		IsoTpLinkContainer *isotp_link_container = &isotp_link_containers[i];
-		vSemaphoreDelete(isotp_link_container->wait_for_isotp_data_sem);
+		if (isotp_link_container->wait_for_isotp_data_sem) {
+			vSemaphoreDelete(isotp_link_container->wait_for_isotp_data_sem);
+			isotp_link_container->wait_for_isotp_data_sem = NULL;
+			didDeinit = true;
+		}
+		
+		if (isotp_link_container->task_mutex) {
+			vSemaphoreDelete(isotp_link_container->task_mutex);
+			isotp_link_container->task_mutex = NULL;
+			didDeinit = true;
+		}
+
+		if (isotp_link_container->recv_buf) {
+			free(isotp_link_container->recv_buf);
+			isotp_link_container->recv_buf = NULL;
+			didDeinit = true;
+		}
+
+		if (isotp_link_container->send_buf) {
+			free(isotp_link_container->send_buf);
+			isotp_link_container->send_buf = NULL;
+			didDeinit = true;
+		}
+
+		if (isotp_link_container->payload_buf) {
+			free(isotp_link_container->payload_buf);
+			isotp_link_container->payload_buf = NULL;
+			didDeinit = true;
+		}
 	}
+
+	if(didDeinit)
+		ESP_LOGI(LINKS_TAG, "Deinit");
 }
