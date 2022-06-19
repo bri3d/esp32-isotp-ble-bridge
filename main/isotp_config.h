@@ -25,5 +25,9 @@
  */
 #define ISO_TP_FRAME_PADDING
 
+/* The padding byte to use for ISO-TP frames
+ */
+#define ISO_TP_FRAME_PADDING_BYTE 0x55
+
 #endif
 

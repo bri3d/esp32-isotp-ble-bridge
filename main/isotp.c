@@ -39,7 +39,7 @@ static int isotp_send_flow_control(IsoTpLink* link, uint16_t flow_status, uint16
 	message.as.flow_control.STmin = us_to_stmin(st_min_us);
 	/* send message */
 #ifdef ISO_TP_FRAME_PADDING
-    (void) memset(message.as.flow_control.reserve, 0xAA, sizeof(message.as.flow_control.reserve));
+    (void) memset(message.as.flow_control.reserve, ISO_TP_FRAME_PADDING_BYTE, sizeof(message.as.flow_control.reserve));
     ret = isotp_user_send_can(link->send_arbitration_id, message.as.data_array.ptr, sizeof(message));
 #else    
     ret = isotp_user_send_can(link->send_arbitration_id, message.as.data_array.ptr, 3);
@@ -62,7 +62,7 @@ static int isotp_send_single_frame(IsoTpLink* link, uint32_t id) {
 
     /* send message */
 #ifdef ISO_TP_FRAME_PADDING
-    (void) memset(message.as.single_frame.data + link->send_size, 0xAA, sizeof(message.as.single_frame.data) - link->send_size);
+    (void) memset(message.as.single_frame.data + link->send_size, ISO_TP_FRAME_PADDING_BYTE, sizeof(message.as.single_frame.data) - link->send_size);
     ret = isotp_user_send_can(id, message.as.data_array.ptr, sizeof(message));
 #else
     ret = isotp_user_send_can(id,
@@ -117,7 +117,7 @@ static int isotp_send_consecutive_frame(IsoTpLink* link) {
 
     /* send message */
 #ifdef ISO_TP_FRAME_PADDING
-    (void) memset(message.as.consecutive_frame.data + data_length, 0xAA, sizeof(message.as.consecutive_frame.data) - data_length);
+    (void) memset(message.as.consecutive_frame.data + data_length, ISO_TP_FRAME_PADDING_BYTE, sizeof(message.as.consecutive_frame.data) - data_length);
     ret = isotp_user_send_can(link->send_arbitration_id, message.as.data_array.ptr, sizeof(message));
 #else
     ret = isotp_user_send_can(link->send_arbitration_id,
@@ -313,7 +313,7 @@ void isotp_on_can_message(IsoTpLink *link, uint8_t *data, uint16_t len) {
             if (ISOTP_RET_OK == ret) {
                 if(1 == link->dq3xx_hack) { 
                     if (len > 3 && message.as.single_frame.data[0] == 0x7F && message.as.single_frame.data[1] == 0x31) {
-                        isotp_send_flow_control(link, PCI_FLOW_STATUS_CONTINUE, link->receive_bs_count, link->st_min);
+                        isotp_send_flow_control(link, PCI_FLOW_STATUS_CONTINUE, 0, 0);
                     }
                 }
                 /* change status */
