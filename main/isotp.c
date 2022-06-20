@@ -311,9 +311,14 @@ void isotp_on_can_message(IsoTpLink *link, uint8_t *data, uint16_t len) {
             ret = isotp_receive_single_frame(link, &message, len);
             
             if (ISOTP_RET_OK == ret) {
+                /*
+                in this hack, we set up a transmission state where we send a 30 xx xx Continue message
+                even though this is only a single frame message, this awful control unit seems to expect this
+                */
                 if(1 == link->dq3xx_hack) { 
                     if (len > 3 && message.as.single_frame.data[0] == 0x7F && message.as.single_frame.data[1] == 0x31) {
-                        isotp_send_flow_control(link, PCI_FLOW_STATUS_CONTINUE, 0, 0);
+                        link->send_timer_st = isotp_user_get_us() + link->stmin_override;
+                        link->send_status = ISOTP_SEND_STATUS_BOGUS_CONTINUE;
                     }
                 }
                 /* change status */
@@ -529,6 +534,13 @@ void isotp_poll(IsoTpLink *link) {
             isotp_user_debug("isotp_poll: ISOTP_PROTOCOL_RESULT_TIMEOUT_CR\n");
             link->receive_protocol_result = ISOTP_PROTOCOL_RESULT_TIMEOUT_CR;
             link->receive_status = ISOTP_RECEIVE_STATUS_IDLE;
+        }
+    }
+
+    if (ISOTP_SEND_STATUS_BOGUS_CONTINUE == link->send_status) {
+        if(isotp_user_get_us() > link->send_timer_st) {
+            isotp_send_flow_control(link, PCI_FLOW_STATUS_CONTINUE, 0, 0);
+            link->send_status = ISOTP_SEND_STATUS_IDLE;
         }
     }
 

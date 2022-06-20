@@ -125,6 +125,7 @@ static void isotp_processing_task(void *arg)
     while (isotp_run_tasks)
     {
         if (link_ptr->send_status != ISOTP_SEND_STATUS_INPROGRESS &&
+		    link_ptr->send_status != ISOTP_SEND_STATUS_BOGUS_CONTINUE &&
             link_ptr->receive_status != ISOTP_RECEIVE_STATUS_INPROGRESS)
         {
             // Link is idle, wait for new data before pumping loop.

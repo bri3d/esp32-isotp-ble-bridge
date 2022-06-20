@@ -48,6 +48,7 @@ typedef enum {
     ISOTP_SEND_STATUS_IDLE,
     ISOTP_SEND_STATUS_INPROGRESS,
     ISOTP_SEND_STATUS_ERROR,
+    ISOTP_SEND_STATUS_BOGUS_CONTINUE, /* for DQ3xx hack */
 } IsoTpSendStatusTypes;
 
 /* ISOTP receiver status */
