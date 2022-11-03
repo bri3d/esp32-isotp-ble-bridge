@@ -10,7 +10,7 @@
 #include <can.h>
 
 // protocol
-#define HEADER_SIZE 8
+#define PROTOCOL_HEADER_SIZE 8
 
 // BLE
 #define SERVICE_UUID        "0000abf0-0000-1000-8000-00805f9b34fb"
@@ -46,7 +46,30 @@ uint16_t read_uint16_be(const uint8_t *data) {
 // CAN
 uint8_t can_rx_buf[8];
 
-// ISOTP
+// ISOTP user functions
+void isotp_user_debug(const char* format, ...) {
+  // TODO: log?
+}
+
+int isotp_user_send_can(uint32_t arbitration_id, const uint8_t* data, uint8_t size) {
+  int ret_val = can_send(arbitration_id, data, size);
+  if (ret_val != ESP_OK) {
+    Serial.printf("isotp_user_send_can: can_send ret_val = %08x\n", ret_val);
+    can_reset();
+    return ISOTP_RET_ERROR;
+  }
+  return ISOTP_RET_OK;
+}
+
+uint32_t isotp_user_get_ms() {
+  return millis();
+}
+
+uint64_t isotp_user_get_us() {
+  return micros();
+}
+
+// ISOTP link containers
 typedef struct {
   bool initialized;
   uint16_t request_arbitration_id;
@@ -102,8 +125,8 @@ BLEService *pService;
 BLECharacteristic *pDataNotifyCharacteristic;
 BLECharacteristic *pCommandWriteCharacteristic;
 
-static uint8_t ble_tx_command_buf[ISOTP_BUFSIZE + HEADER_SIZE] = {0};
-static uint8_t ble_rx_command_buf[ISOTP_BUFSIZE + HEADER_SIZE] = {0};
+static uint8_t ble_tx_command_buf[ISOTP_BUFSIZE + PROTOCOL_HEADER_SIZE] = {0};
+static uint8_t ble_rx_command_buf[ISOTP_BUFSIZE + PROTOCOL_HEADER_SIZE] = {0};
 
 ble_states ble_state = WAITING_FOR_CLIENT;
 
@@ -112,6 +135,7 @@ std::mutex ble_command_mtx;
 void process_ble_command(uint8_t *data, size_t data_length) {
   ble_command_ids ble_command_id = (ble_command_ids)data[0];
   if (ble_command_id == CONFIGURE_ISOTP_LINK) {
+    // parse
     size_t pointer = 1;
     uint32_t link_index = read_uint32_be(data + pointer);
     pointer += 4;
@@ -122,26 +146,34 @@ void process_ble_command(uint8_t *data, size_t data_length) {
     uint32_t name_len = read_uint32_be(data + pointer);
     pointer += 4;
     char *name = (char*)(data + pointer);
+    // log
     Serial.printf("CONFIGURE_ISOTP_LINK: link_index = %02x request_arbitration_id = %08x reply_arbitration_id = %08x name_len = %08x name = %s\n", link_index, request_arbitration_id, reply_arbitration_id, name_len, name);
+    // configure
     isotp_init_link(&link_containers[link_index].isotp_link, request_arbitration_id, link_containers[link_index].isotp_tx_buffer, ISOTP_BUFSIZE, link_containers[link_index].isotp_rx_buffer, ISOTP_BUFSIZE);
     link_containers[link_index].initialized = true;
     link_containers[link_index].request_arbitration_id = request_arbitration_id;
     link_containers[link_index].reply_arbitration_id = reply_arbitration_id;
     // TODO: send command success?
   } else if (ble_command_id == UPLOAD_ISOTP_CHUNK) {
+    // parse
     uint32_t chunk_offset = read_uint16_be(data + 1);
     uint32_t chunk_length = read_uint16_be(data + 3);
     uint8_t *bytes = data + 5;
+    // log
     Serial.printf("UPLOAD_ISOTP_CHUNK chunk_offset = %04x chunk_length = %04x\n", chunk_offset, chunk_length);
+    // copy
     memcpy(ble_rx_command_buf + chunk_offset, bytes, chunk_length);
     // TODO: send command success?
   } else if (ble_command_id == FLUSH_ISOTP_PAYLOAD) {
+    // parse
     uint16_t payload_length = read_uint16_be(data + 1);
     uint32_t request_arbitration_id = read_uint32_be(ble_rx_command_buf);
     uint32_t reply_arbitration_id = read_uint32_be(ble_rx_command_buf + 4);
     uint16_t msg_length = payload_length - 8;
     uint8_t *msg = ble_rx_command_buf + 8;
+    // log
     Serial.printf("FLUSH_ISOTP_PAYLOAD payload_length = %04x request_arbitration_id = %08x reply_arbitration_id = %08x msg_length = %04x\n", payload_length, request_arbitration_id, reply_arbitration_id, msg_length);
+    // dispatch
     tx_isotp_on_ble_rx(request_arbitration_id, reply_arbitration_id, msg, msg_length);
     // TODO: send command success?
   } else {
@@ -149,6 +181,7 @@ void process_ble_command(uint8_t *data, size_t data_length) {
   }
 }
 
+// BLE callbacks
 class ServerCallbacks: public BLEServerCallbacks {
     void onConnect(BLEServer* pServer) {
       Serial.println("onConnect");
@@ -186,12 +219,12 @@ void tx_isotp_on_ble_rx(uint16_t request_arbitration_id, uint16_t reply_arbitrat
     }
     delay(1);
   }
-  // send
+  // start sending
   int ret_val = isotp_send_with_id(&link_container->isotp_link, request_arbitration_id, msg, msg_length);
   if (ret_val != ISOTP_RET_OK) {
     Serial.printf("isotp_send_with_id: ret_val = %08x\n", ret_val);
   }
-  // wait for sending to finish?
+  // wait for sending all frames to finish?
   for (;;) {
     if (isotp_is_sending(&link_container->isotp_link) == false) {
       break;
@@ -200,7 +233,6 @@ void tx_isotp_on_ble_rx(uint16_t request_arbitration_id, uint16_t reply_arbitrat
   }
 }
 
-// isotp + ble
 void tx_ble_on_isotp_rx(uint16_t rx_id, uint16_t tx_id, uint8_t *buffer, uint16_t len) {
   Serial.printf("tx_ble_on_isotp_rx rx_id = %04x tx_id = %04x len = %04x\n", rx_id, tx_id, len);
   // short circuit if no client to send to?
@@ -218,6 +250,7 @@ void tx_ble_on_isotp_rx(uint16_t rx_id, uint16_t tx_id, uint8_t *buffer, uint16_
   delay(10);
 }
 
+// task callbacks
 void can_rx_task_callback() {
   // read from CAN
   uint16_t arbitration_id = 0;
@@ -269,28 +302,6 @@ void isotp_receive_task_callback() {
       Serial.printf("isotp_receive_ret_val = %08x\n", isotp_receive_ret_val);
     }
   }
-}
-
-void isotp_user_debug(const char* format, ...) {
-  // TODO: log?
-}
-
-int isotp_user_send_can(uint32_t arbitration_id, const uint8_t* data, uint8_t size) {
-  int ret_val = can_send(arbitration_id, data, size);
-  if (ret_val != ESP_OK) {
-    Serial.printf("isotp_user_send_can: can_send ret_val = %08x\n", ret_val);
-    can_reset();
-    return ISOTP_RET_ERROR;
-  }
-  return ISOTP_RET_OK;    
-}
-
-uint32_t isotp_user_get_ms() {
-  return millis();
-}
-
-uint64_t isotp_user_get_us() {
-  return micros();
 }
 
 // scheduler + tasks
