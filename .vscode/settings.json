@@ -1,0 +1,20 @@
+{
+  "files.associations": {
+    "__hash_table": "c",
+    "__split_buffer": "c",
+    "__tree": "c",
+    "array": "c",
+    "bitset": "c",
+    "deque": "c",
+    "initializer_list": "c",
+    "list": "c",
+    "map": "c",
+    "queue": "c",
+    "regex": "c",
+    "string": "c",
+    "string_view": "c",
+    "unordered_map": "c",
+    "unordered_set": "c",
+    "vector": "c"
+  }
+}

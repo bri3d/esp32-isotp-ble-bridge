@@ -1,0 +1,9 @@
+[submodule "main/deps/TaskScheduler"]
+	path = main/deps/TaskScheduler
+	url = git@github.com:arkhipenko/TaskScheduler.git
+[submodule "main/deps/isotp-c"]
+	path = main/deps/isotp-c
+	url = git@github.com:brandonros/isotp-c.git
+[submodule "components/arduino-esp32"]
+	path = components/arduino-esp32
+	url = git@github.com:espressif/arduino-esp32.git

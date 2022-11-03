@@ -8,9 +8,9 @@
 #include <BLEUtils.h>
 #include <BLEServer.h>
 #include <BLE2902.h>
-// https://github.com/arkhipenko/TaskScheduler
+// git@github.com:arkhipenko/TaskScheduler.git
 #include <TaskScheduler.h>
-// https://github.com/SimonCahill/isotp-c
+// git@github.com:brandonros/isotp-c.git
 #include <isotp.h>
 #include <can.h>
 
@@ -25,9 +25,9 @@
 
 // ISOTP
 #define ISOTP_BUFSIZE 4096
-#define ISO_TP_DEFAULT_ST_MIN 1
-#define ISO_TP_DEFAULT_RESPONSE_TIMEOUT 100000
-#define ISO_TP_DEFAULT_BLOCK_SIZE 8
+#define ISO_TP_DEFAULT_ST_MIN_US 500
+#define ISO_TP_DEFAULT_RESPONSE_TIMEOUT_US 100000
+#define ISO_TP_DEFAULT_BLOCK_SIZE 0x20
 
 int tx_isotp_on_ble_rx(uint16_t request_arbitration_id, uint16_t reply_arbitration_id, uint8_t *msg, uint16_t msg_length);
 void tx_ble_on_isotp_rx(uint16_t rx_id, uint16_t tx_id, uint8_t *buffer, uint16_t len);
@@ -67,8 +67,8 @@ int isotp_user_send_can(uint32_t arbitration_id, const uint8_t* data, uint8_t si
   return ISOTP_RET_OK;
 }
 
-uint32_t isotp_user_get_ms() {
-  return millis();
+uint32_t isotp_user_get_us() {
+  return micros();
 }
 
 // ISOTP link containers
