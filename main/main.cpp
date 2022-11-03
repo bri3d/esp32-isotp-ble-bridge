@@ -29,7 +29,7 @@
 #define ISO_TP_DEFAULT_RESPONSE_TIMEOUT 100000
 #define ISO_TP_DEFAULT_BLOCK_SIZE 8
 
-void tx_isotp_on_ble_rx(uint16_t request_arbitration_id, uint16_t reply_arbitration_id, uint8_t *msg, uint16_t msg_length);
+int tx_isotp_on_ble_rx(uint16_t request_arbitration_id, uint16_t reply_arbitration_id, uint8_t *msg, uint16_t msg_length);
 void tx_ble_on_isotp_rx(uint16_t rx_id, uint16_t tx_id, uint8_t *buffer, uint16_t len);
 
 // math
@@ -60,6 +60,7 @@ int isotp_user_send_can(uint32_t arbitration_id, const uint8_t* data, uint8_t si
   int ret_val = can_send(arbitration_id, data, size);
   if (ret_val != ESP_OK) {
     Serial.printf("isotp_user_send_can: can_send ret_val = %08x\n", ret_val);
+    // we need to stop -> start the TWAI driver or else we'll have 0 success flashing after a timeout has occurred
     can_reset();
     return ISOTP_RET_ERROR;
   }
@@ -217,12 +218,12 @@ class CommandWriteCharacteristicCallbacks: public BLECharacteristicCallbacks {
 };
 
 // isotp + ble
-void tx_isotp_on_ble_rx(uint16_t request_arbitration_id, uint16_t reply_arbitration_id, uint8_t *msg, uint16_t msg_length) {
+int tx_isotp_on_ble_rx(uint16_t request_arbitration_id, uint16_t reply_arbitration_id, uint8_t *msg, uint16_t msg_length) {
   Serial.printf("tx_isotp_on_ble_rx: sending to request_arbitration_id = %04x reply_arbitration_id = %04x msg_length = %04x...\n", request_arbitration_id, reply_arbitration_id, msg_length);
   IsoTpLinkContainer *link_container = find_link_container_by_request_arbitration_id(request_arbitration_id);
   // check if link is currently sending?
   for (;;) {
-    if (isotp_is_sending(&link_container->isotp_link) == false) {
+    if (link_container->isotp_link.send_status != ISOTP_SEND_STATUS_INPROGRESS) {
       break;
     }
     delay(1);
@@ -234,11 +235,13 @@ void tx_isotp_on_ble_rx(uint16_t request_arbitration_id, uint16_t reply_arbitrat
   }
   // wait for sending all frames to finish?
   for (;;) {
-    if (isotp_is_sending(&link_container->isotp_link) == false) {
+    if (link_container->isotp_link.send_status != ISOTP_SEND_STATUS_INPROGRESS) {
       break;
     }
     delay(1);
   }
+  // check result
+  return link_container->isotp_link.send_protocol_result;
 }
 
 void tx_ble_on_isotp_rx(uint16_t rx_id, uint16_t tx_id, uint8_t *buffer, uint16_t len) {
