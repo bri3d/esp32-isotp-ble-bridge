@@ -17,8 +17,8 @@ int can_init()
       .rx_io = GPIO_NUM_4,
       .clkout_io = TWAI_IO_UNUSED,
       .bus_off_io = TWAI_IO_UNUSED,
-      .tx_queue_len = 5, // setting this above 5 yields poor results?
-      .rx_queue_len = 5, // setting this above 5 yields poor results?
+      .tx_queue_len = 32, // setting this above 5 yields poor results?
+      .rx_queue_len = 32, // setting this above 5 yields poor results?
       .alerts_enabled = TWAI_ALERT_NONE,
       .clkout_divider = 0,
       .intr_flags = ESP_INTR_FLAG_LEVEL1
@@ -94,6 +94,8 @@ void can_reset()
     {
       Serial.printf("TWAI_STATE_RECOVERING\n");
     }
+    // sleep?
+    delay(1);
   }
   // unlock
   can_mtx.unlock();

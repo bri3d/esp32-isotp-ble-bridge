@@ -1,11 +1,16 @@
+// c++ deps
 #include <mutex>
 #include <queue>
+// arduino deps
 #include <Arduino.h>
+// esp32 deps
 #include <BLEDevice.h>
 #include <BLEUtils.h>
 #include <BLEServer.h>
 #include <BLE2902.h>
-#include <TaskScheduler.h> // https://github.com/arkhipenko/TaskScheduler.git
+// https://github.com/arkhipenko/TaskScheduler
+#include <TaskScheduler.h>
+// https://github.com/SimonCahill/isotp-c
 #include <isotp.h>
 #include <can.h>
 
@@ -13,16 +18,16 @@
 #define PROTOCOL_HEADER_SIZE 8
 
 // BLE
-#define SERVICE_UUID        "0000abf0-0000-1000-8000-00805f9b34fb"
+#define SERVICE_UUID "0000abf0-0000-1000-8000-00805f9b34fb"
 #define DATA_NOTIFY_CHARACTERISTIC_UUID "0000abf2-0000-1000-8000-00805f9b34fb"
 #define COMMAND_WRITE_CHARACTERISTIC_UUID "0000abf3-0000-1000-8000-00805f9b34fb"
 #define DEVICE_NAME "BLE_TO_ISOTP"
 
 // ISOTP
 #define ISOTP_BUFSIZE 4096
-#define ISO_TP_DEFAULT_ST_MIN       1
+#define ISO_TP_DEFAULT_ST_MIN 1
 #define ISO_TP_DEFAULT_RESPONSE_TIMEOUT 100000
-#define ISO_TP_DEFAULT_BLOCK_SIZE   8
+#define ISO_TP_DEFAULT_BLOCK_SIZE 8
 
 void tx_isotp_on_ble_rx(uint16_t request_arbitration_id, uint16_t reply_arbitration_id, uint8_t *msg, uint16_t msg_length);
 void tx_ble_on_isotp_rx(uint16_t rx_id, uint16_t tx_id, uint8_t *buffer, uint16_t len);
@@ -63,10 +68,6 @@ int isotp_user_send_can(uint32_t arbitration_id, const uint8_t* data, uint8_t si
 
 uint32_t isotp_user_get_ms() {
   return millis();
-}
-
-uint64_t isotp_user_get_us() {
-  return micros();
 }
 
 // ISOTP link containers
@@ -176,6 +177,10 @@ void process_ble_command(uint8_t *data, size_t data_length) {
     // dispatch
     tx_isotp_on_ble_rx(request_arbitration_id, reply_arbitration_id, msg, msg_length);
     // TODO: send command success?
+  } else if (ble_command_id == START_PERIODIC_MESSAGE) {
+    // TODO
+  } else if (ble_command_id == STOP_PERIODIC_MESSAGE) {
+    // TODO
   } else {
     Serial.printf("unknown command ID: %02x\n", ble_command_id);
   }
@@ -183,29 +188,32 @@ void process_ble_command(uint8_t *data, size_t data_length) {
 
 // BLE callbacks
 class ServerCallbacks: public BLEServerCallbacks {
-    void onConnect(BLEServer* pServer) {
-      Serial.println("onConnect");
-      if (ble_state == WAITING_FOR_CLIENT) {
-        ble_state = HAVE_CLIENT;
-      }
-    };
-
-    void onDisconnect(BLEServer* pServer) {
-      Serial.println("onDisconnect");
-      ble_state = WAITING_FOR_CLIENT;
-      // restart?
-      ESP.restart();
+  void onConnect(BLEServer* pServer) {
+    Serial.println("onConnect");
+    if (ble_state == WAITING_FOR_CLIENT) {
+      ble_state = HAVE_CLIENT;
     }
+  };
+
+  void onDisconnect(BLEServer* pServer) {
+    Serial.println("onDisconnect");
+    ble_state = WAITING_FOR_CLIENT;
+      // restart?
+    ESP.restart();
+  }
 };
 
 class CommandWriteCharacteristicCallbacks: public BLECharacteristicCallbacks {
-    void onWrite(BLECharacteristic* pCharacteristic, esp_ble_gatts_cb_param_t* param) {
-      ble_command_mtx.lock();
-      uint8_t *data = pCharacteristic->getData();
-      size_t data_length = pCharacteristic->getLength();
-      process_ble_command(data, data_length);
-      ble_command_mtx.unlock();
-    }
+  void onWrite(BLECharacteristic* pCharacteristic, esp_ble_gatts_cb_param_t* param) {
+    // lock
+    ble_command_mtx.lock();
+    // process
+    uint8_t *data = pCharacteristic->getData();
+    size_t data_length = pCharacteristic->getLength();
+    process_ble_command(data, data_length);
+    // unlock
+    ble_command_mtx.unlock();
+  }
 };
 
 // isotp + ble
