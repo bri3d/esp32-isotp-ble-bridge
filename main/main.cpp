@@ -11,18 +11,21 @@
 
 // protocol
 #define HEADER_SIZE 8
+
 // BLE
 #define SERVICE_UUID        "0000abf0-0000-1000-8000-00805f9b34fb"
 #define DATA_NOTIFY_CHARACTERISTIC_UUID "0000abf2-0000-1000-8000-00805f9b34fb"
 #define COMMAND_WRITE_CHARACTERISTIC_UUID "0000abf3-0000-1000-8000-00805f9b34fb"
 #define DEVICE_NAME "BLE_TO_ISOTP"
+
 // ISOTP
 #define ISOTP_BUFSIZE 4096
 #define ISO_TP_DEFAULT_ST_MIN       1
 #define ISO_TP_DEFAULT_RESPONSE_TIMEOUT 100000
 #define ISO_TP_DEFAULT_BLOCK_SIZE   8
 
-void write_isotp_on_ble_message(uint16_t request_arbitration_id, uint16_t reply_arbitration_id, uint8_t *msg, uint16_t msg_length);
+void tx_isotp_on_ble_rx(uint16_t request_arbitration_id, uint16_t reply_arbitration_id, uint8_t *msg, uint16_t msg_length);
+void tx_ble_on_isotp_rx(uint16_t rx_id, uint16_t tx_id, uint8_t *buffer, uint16_t len);
 
 // math
 void write_uint32_be(uint32_t value, uint8_t *output) {
@@ -54,6 +57,30 @@ typedef struct {
   uint8_t isotp_payload_buffer[ISOTP_BUFSIZE];
 } IsoTpLinkContainer;
 IsoTpLinkContainer link_containers[4];
+
+IsoTpLinkContainer* find_link_container_by_request_arbitration_id(uint16_t request_arbitration_id) {
+  for (int i = 0; i < 4; ++i) {
+    if (link_containers[i].initialized == false) {
+      continue;
+    }
+    if (link_containers[i].request_arbitration_id == request_arbitration_id) {
+      return &link_containers[i];
+    }
+  }
+  return NULL;
+}
+
+IsoTpLinkContainer* find_link_container_by_reply_arbitration_id(uint16_t reply_arbitration_id) {
+  for (int i = 0; i < 4; ++i) {
+    if (link_containers[i].initialized == false) {
+      continue;
+    }
+    if (link_containers[i].reply_arbitration_id == reply_arbitration_id) {
+      return &link_containers[i];
+    }
+  }
+  return NULL;
+}
 
 // BLE
 enum ble_states {
@@ -115,7 +142,7 @@ void process_ble_command(uint8_t *data, size_t data_length) {
     uint16_t msg_length = payload_length - 8;
     uint8_t *msg = ble_rx_command_buf + 8;
     Serial.printf("FLUSH_ISOTP_PAYLOAD payload_length = %04x request_arbitration_id = %08x reply_arbitration_id = %08x msg_length = %04x\n", payload_length, request_arbitration_id, reply_arbitration_id, msg_length);
-    write_isotp_on_ble_message(request_arbitration_id, reply_arbitration_id, msg, msg_length);
+    tx_isotp_on_ble_rx(request_arbitration_id, reply_arbitration_id, msg, msg_length);
     // TODO: send command success?
   } else {
     Serial.printf("unknown command ID: %02x\n", ble_command_id);
@@ -148,33 +175,9 @@ class CommandWriteCharacteristicCallbacks: public BLECharacteristicCallbacks {
     }
 };
 
-IsoTpLinkContainer* find_link_container_by_request_arbitration_id(uint16_t request_arbitration_id) {
-  for (int i = 0; i < 4; ++i) {
-    if (link_containers[i].initialized == false) {
-      continue;
-    }
-    if (link_containers[i].request_arbitration_id == request_arbitration_id) {
-      return &link_containers[i];
-    }
-  }
-  return NULL;
-}
-
-IsoTpLinkContainer* find_link_container_by_reply_arbitration_id(uint16_t reply_arbitration_id) {
-  for (int i = 0; i < 4; ++i) {
-    if (link_containers[i].initialized == false) {
-      continue;
-    }
-    if (link_containers[i].reply_arbitration_id == reply_arbitration_id) {
-      return &link_containers[i];
-    }
-  }
-  return NULL;
-}
-
 // isotp + ble
-void write_isotp_on_ble_message(uint16_t request_arbitration_id, uint16_t reply_arbitration_id, uint8_t *msg, uint16_t msg_length) {
-  Serial.printf("write_isotp_on_ble_message: sending to request_arbitration_id = %04x reply_arbitration_id = %04x msg_length = %04x...\n", request_arbitration_id, reply_arbitration_id, msg_length);
+void tx_isotp_on_ble_rx(uint16_t request_arbitration_id, uint16_t reply_arbitration_id, uint8_t *msg, uint16_t msg_length) {
+  Serial.printf("tx_isotp_on_ble_rx: sending to request_arbitration_id = %04x reply_arbitration_id = %04x msg_length = %04x...\n", request_arbitration_id, reply_arbitration_id, msg_length);
   IsoTpLinkContainer *link_container = find_link_container_by_request_arbitration_id(request_arbitration_id);
   // check if link is currently sending?
   for (;;) {
@@ -197,8 +200,9 @@ void write_isotp_on_ble_message(uint16_t request_arbitration_id, uint16_t reply_
   }
 }
 
-void notify_ble_on_isotp_message(uint16_t rx_id, uint16_t tx_id, uint8_t *buffer, uint16_t len) {
-  Serial.printf("notify_ble_on_isotp_message rx_id = %04x tx_id = %04x len = %04x\n", rx_id, tx_id, len);
+// isotp + ble
+void tx_ble_on_isotp_rx(uint16_t rx_id, uint16_t tx_id, uint8_t *buffer, uint16_t len) {
+  Serial.printf("tx_ble_on_isotp_rx rx_id = %04x tx_id = %04x len = %04x\n", rx_id, tx_id, len);
   // short circuit if no client to send to?
   if (ble_state == WAITING_FOR_CLIENT) {
     return;
@@ -258,7 +262,7 @@ void isotp_receive_task_callback() {
     uint16_t out_size = 0;
     int isotp_receive_ret_val = isotp_receive(&link_containers[i].isotp_link, link_containers[i].isotp_payload_buffer, ISOTP_BUFSIZE, &out_size);
     if (isotp_receive_ret_val == ISOTP_RET_OK) {
-      notify_ble_on_isotp_message(link_containers[i].request_arbitration_id, link_containers[i].reply_arbitration_id, link_containers[i].isotp_payload_buffer, out_size);
+      tx_ble_on_isotp_rx(link_containers[i].request_arbitration_id, link_containers[i].reply_arbitration_id, link_containers[i].isotp_payload_buffer, out_size);
     } else if (isotp_receive_ret_val == ISOTP_RET_NO_DATA) {
        // expected timeout trying to read (no data available?)
     } else {
